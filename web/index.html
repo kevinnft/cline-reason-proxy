@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>CRP · settings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #13120f;
+    --bg-2: #1b1a16;
+    --ink: #f3eee4;
+    --muted: #8e8778;
+    --line: #2e2c26;
+    --accent: #c4a35a;
+    --ok: #7ea36f;
+    --bad: #c45c4a;
+    --paid: #b56a3a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 "IBM Plex Sans", ui-sans-serif, sans-serif; }
+  body { min-height: 100vh; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 36px 28px 72px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 8px; }
+  .mark { font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
+  h1 { font-size: 22px; font-weight: 500; margin: 6px 0 0; letter-spacing: -.02em; }
+  .live { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted); }
+  .live b { color: var(--ok); font-weight: 500; }
+  .row { display: grid; grid-template-columns: 148px 1fr; gap: 8px 28px; padding: 22px 0; border-bottom: 1px solid var(--line); }
+  .lab { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); padding-top: 4px; }
+  .val { min-width: 0; }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  .keybox { display: flex; gap: 8px; align-items: center; background: var(--bg-2); border: 1px solid var(--line); padding: 10px 12px; }
+  .keybox code { flex: 1; font-family: "IBM Plex Mono", monospace; font-size: 13px; word-break: break-all; color: var(--ink); }
+  button, select { font: 12px/1 "IBM Plex Sans", sans-serif; letter-spacing: .06em; text-transform: uppercase; background: transparent; color: var(--ink); border: 1px solid var(--line); padding: 8px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { border-color: var(--accent); color: var(--accent); }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .seg { display: flex; gap: 0; border: 1px solid var(--line); width: fit-content; }
+  .seg button { border: 0; border-right: 1px solid var(--line); padding: 9px 14px; }
+  .seg button:last-child { border-right: 0; }
+  .seg button.on { background: var(--accent); color: #16140f; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; padding: 0 0 8px; }
+  td { padding: 7px 10px 7px 0; border-top: 1px solid var(--line); font-family: "IBM Plex Mono", monospace; font-size: 12px; vertical-align: top; }
+  .tag { display: inline-block; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; padding: 2px 6px; border: 1px solid currentColor; }
+  .tag.free { color: var(--ok); }
+  .tag.paid { color: var(--paid); }
+  .ep { font-family: "IBM Plex Mono", monospace; font-size: 13px; }
+  .warn { color: var(--paid); font-size: 12px; margin-top: 10px; }
+  .toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg-2); border: 1px solid var(--accent); color: var(--accent); padding: 10px 14px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .toast.show { opacity: 1; }
+  @media (max-width: 640px) {
+    .row { grid-template-columns: 1fr; }
+    .wrap { padding: 24px 16px 64px; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="mark">cline-reason-proxy</div>
+        <h1>Settings</h1>
+      </div>
+      <div class="live" id="live">checking…</div>
+    </header>
+
+    <div class="row">
+      <div class="lab">API key</div>
+      <div class="val">
+        <div class="keybox">
+          <code id="key">loading…</code>
+        </div>
+        <div class="btns" style="margin-top:10px">
+          <button type="button" id="btn-toggle">Show</button>
+          <button type="button" class="primary" id="btn-copy">Copy</button>
+        </div>
+        <p class="hint">Bearer token for <span class="ep">/v1/models</span> and <span class="ep">/v1/chat/completions</span>. Stored in <span class="ep">config.json</span>.</p>
+        <p class="warn">Bound on 0.0.0.0 — anyone on this LAN who opens this page can see the key.</p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="lab">Reasoning</div>
+      <div class="val">
+        <div class="seg" id="effort">
+          <button type="button" data-v="low">low</button>
+          <button type="button" data-v="high">high</button>
+          <button type="button" data-v="max">max</button>
+        </div>
+        <p class="hint">Cline GLM only accepts <span class="ep">low | high | max</span>. Hermes <span class="ep">xhigh</span> maps to <span class="ep">max</span>. Default applied on every request.</p>
+        <p class="hint" id="effort-now"></p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="lab">Models</div>
+      <div class="val">
+        <table>
+          <thead><tr><th>picker</th><th>upstream</th><th></th></tr></thead>
+          <tbody id="models"></tbody>
+        </table>
+        <p class="hint">One upstream. Old picker names still work if a client already has them saved.</p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="lab">Endpoints</div>
+      <div class="val">
+        <table>
+          <tr><td style="border:0;color:var(--muted);width:88px">Windows</td><td style="border:0" class="ep" id="ep-win"></td></tr>
+          <tr><td style="color:var(--muted)">WSL2</td><td class="ep">http://&lt;windows-host-ip&gt;:20129/v1<br/>from Ubuntu: <span class="ep">ip route | awk '/^default/{print $3}'</span></td></tr>
+        </table>
+        <p class="hint">WSL <span class="ep">127.0.0.1</span> is not this proxy. Last known host vEthernet: <span class="ep">172.19.96.1</span></p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="lab">Client</div>
+      <div class="val">
+        <div class="keybox"><code id="snippet"></code></div>
+        <div class="btns" style="margin-top:10px">
+          <button type="button" id="btn-snip">Copy snippet</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="toast" id="toast">copied</div>
+<script>
+const $ = (id) => document.getElementById(id);
+let state = { api_key: "", reasoning_effort: "max", host: "0.0.0.0", port: 20129, keys: 0, models: [], include_reasoning: true };
+let keyShown = false;
+
+function toast(t) {
+  const el = $("toast");
+  el.textContent = t;
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 1200);
+}
+function mask(k) {
+  if (!k) return "—";
+  if (keyShown) return k;
+  if (k.length < 12) return "•".repeat(k.length);
+  return k.slice(0, 7) + "…" + k.slice(-4);
+}
+function originBase() {
+  const p = location.port || state.port;
+  return location.protocol + "//" + location.hostname + ":" + p + "/v1";
+}
+function render() {
+  $("key").textContent = mask(state.api_key);
+  $("btn-toggle").textContent = keyShown ? "Hide" : "Show";
+  $("live").innerHTML = state.ok
+    ? "<b>live</b> · " + state.keys + " cline keys · :" + state.port
+    : "<span style='color:var(--bad)'>offline</span>";
+  $("effort-now").textContent = "active: " + (state.reasoning_effort || "max") + " · include_reasoning " + (state.include_reasoning ? "on" : "off");
+  document.querySelectorAll("#effort button").forEach((b) => {
+    b.classList.toggle("on", b.dataset.v === (state.reasoning_effort || "max"));
+  });
+  $("ep-win").textContent = "http://127.0.0.1:" + state.port + "/v1";
+  $("snippet").textContent =
+    "base_url: " + originBase() + "\n" +
+    "Authorization: Bearer " + (state.api_key || "<api_key>") + "\n" +
+    "model: z-ai/glm-5.3-flash";
+  const tb = $("models");
+  tb.innerHTML = "";
+  (state.models || []).forEach((m) => {
+    const tr = document.createElement("tr");
+    const paid = m.paid;
+    tr.innerHTML = "<td>" + m.id + "</td><td>" + m.root + "</td><td><span class='tag " + (paid ? "paid" : "free") + "'>" + (paid ? "paid" : "free") + "</span></td>";
+    tb.appendChild(tr);
+  });
+}
+async function load() {
+  const r = await fetch("/api/settings");
+  state = Object.assign(state, await r.json());
+  render();
+}
+async function saveEffort(v) {
+  const r = await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reasoning_effort: v }),
+  });
+  state = Object.assign(state, await r.json());
+  render();
+  toast("effort " + v);
+}
+$("btn-toggle").onclick = () => { keyShown = !keyShown; render(); };
+$("btn-copy").onclick = async () => {
+  await navigator.clipboard.writeText(state.api_key);
+  toast("api key copied");
+};
+$("btn-snip").onclick = async () => {
+  await navigator.clipboard.writeText($("snippet").textContent);
+  toast("snippet copied");
+};
+$("effort").onclick = (e) => {
+  const b = e.target.closest("button[data-v]");
+  if (b) saveEffort(b.dataset.v);
+};
+load().catch(() => { $("live").innerHTML = "<span style='color:var(--bad)'>failed to load /api/settings</span>"; });
+</script>
+</body>
+</html>
