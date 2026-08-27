@@ -4,7 +4,8 @@
 Cline VSCode reads delta.reasoning / include_reasoning.
 Hermes / OpenAI clients read delta.reasoning_content.
 This proxy:
-  - requires Bearer PROXY_API_KEY
+  - requires Bearer PROXY_API_KEY on /v1
+  - UI login with the same API key, session cookie HttpOnly
   - round-robins Cline keys from 9router sqlite
   - injects include_reasoning=true
   - copies reasoning / reasoning_details -> reasoning_content
@@ -14,17 +15,20 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import secrets
 import sqlite3
 import sys
 import threading
 import time
 import traceback
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import urlparse
+from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "config.json"
@@ -52,25 +56,277 @@ MODEL_ALIASES = {
     "cline-glm-5.3-flash": "z-ai/glm-5.3-flash",
     "cline/z-ai/glm-5.3-flash": "z-ai/glm-5.3-flash",
     "glm-5.3-flash": "z-ai/glm-5.3-flash",
+    "cline-ds-v4-flash": "deepseek/deepseek-v4-flash",
+    "cline/deepseek/deepseek-v4-flash": "deepseek/deepseek-v4-flash",
+    "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
 }
 
 DEFAULT_MODEL = "z-ai/glm-5.3-flash"
-PUBLIC_MODELS = [DEFAULT_MODEL]
+PUBLIC_MODELS = [DEFAULT_MODEL, "deepseek/deepseek-v4-flash"]
 RETRY_STATUSES = {401, 402, 403, 408, 409, 429, 500, 502, 503, 504}
-MAX_FAILOVER = 8
+MAX_FAILOVER = 32
 
 _lock = threading.Lock()
 _rr = 0
 _keys: list[str] = []
 _proxy_key = ""
 _default_effort = "max"
+_proxy_enabled = False
+_proxies: list[str] = []
+_proxy_rr = 0
 WEB_DIR = ROOT / "web"
 PAID_MODELS: set[str] = set()
+PROXIES_FILE = Path(os.environ.get("CLINE_PROXIES_FILE", str(ROOT / "proxies.json"))).expanduser()
+COOKIE_NAME = "crp_session"
+SESSION_TTL = 30 * 24 * 3600
+LOGIN_WINDOW = 900
+LOGIN_MAX_FAILS = 20
+STATS_DB = Path(os.environ.get("CLINE_STATS_DB", str(ROOT / "stats.sqlite"))).expanduser()
+STATS_KEEP_SEC = 30 * 24 * 3600
+_sessions: dict[str, float] = {}
+_login_fails: dict[str, list[float]] = {}
+_stats_q: queue.Queue = queue.Queue(maxsize=4096)
+_stats_cache: dict[str, Any] = {"at": 0.0, "payload": None}
 
 
 def log(msg: str) -> None:
     ts = time.strftime("%H:%M:%S")
     print(f"[{ts}] {msg}", flush=True)
+
+
+def sd_notify(state: str) -> None:
+    """Talk to systemd (READY / WATCHDOG). No-op if not under systemd."""
+    path = os.environ.get("NOTIFY_SOCKET")
+    if not path:
+        return
+    try:
+        import socket as _socket
+
+        sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_DGRAM)
+        addr: str | bytes
+        if path.startswith("@"):
+            addr = "\0" + path[1:]
+        else:
+            addr = path
+        sock.connect(addr)
+        sock.sendall(state.encode("utf-8"))
+        sock.close()
+    except OSError:
+        pass
+
+
+def watchdog_loop() -> None:
+    usec = int(os.environ.get("WATCHDOG_USEC") or "0")
+    interval = max(1.0, (usec / 1_000_000) / 3) if usec else 5.0
+    while True:
+        sd_notify("WATCHDOG=1")
+        time.sleep(interval)
+
+
+def _stats_connect() -> sqlite3.Connection:
+    con = sqlite3.connect(str(STATS_DB), timeout=2, isolation_level=None)
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA synchronous=NORMAL")
+    con.execute("PRAGMA temp_store=MEMORY")
+    return con
+
+
+def init_stats_db() -> None:
+    con = _stats_connect()
+    try:
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS hits (
+                 ts INTEGER NOT NULL,
+                 model TEXT NOT NULL DEFAULT '',
+                 stream INTEGER NOT NULL DEFAULT 0,
+                 ok INTEGER NOT NULL DEFAULT 0,
+                 prompt INTEGER NOT NULL DEFAULT 0,
+                 completion INTEGER NOT NULL DEFAULT 0,
+                 total INTEGER NOT NULL DEFAULT 0
+               )"""
+        )
+        con.execute("CREATE INDEX IF NOT EXISTS hits_ts ON hits(ts)")
+    finally:
+        con.close()
+
+
+def _int_usage(obj: Any, *keys: str) -> int:
+    if not isinstance(obj, dict):
+        return 0
+    for k in keys:
+        v = obj.get(k)
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, (int, float)):
+            return int(v)
+        if isinstance(v, str) and v.isdigit():
+            return int(v)
+    return 0
+
+
+def extract_usage(obj: Any) -> tuple[int, int, int]:
+    if not isinstance(obj, dict):
+        return 0, 0, 0
+    raw_u = obj.get("usage")
+    u: dict[str, Any] = raw_u if isinstance(raw_u, dict) else {}
+    prompt = _int_usage(u, "prompt_tokens", "input_tokens", "promptTokens")
+    completion = _int_usage(
+        u, "completion_tokens", "output_tokens", "completionTokens"
+    )
+    total = _int_usage(u, "total_tokens", "totalTokens")
+    if total <= 0:
+        total = prompt + completion
+    raw_d = u.get("completion_tokens_details")
+    details: dict[str, Any] = raw_d if isinstance(raw_d, dict) else {}
+    reasoning = _int_usage(details, "reasoning_tokens", "reasoningTokens")
+    if reasoning and completion and completion < reasoning:
+        completion += reasoning
+        total = prompt + completion
+    return prompt, completion, total
+
+
+def _sse_usage(line: bytes) -> dict[str, Any] | None:
+    raw = line.rstrip(b"\r")
+    if not raw.startswith(b"data:"):
+        return None
+    payload = raw[5:].strip()
+    if not payload or payload == b"[DONE]":
+        return None
+    try:
+        obj = json.loads(payload.decode("utf-8", "replace"))
+    except Exception:
+        return None
+    obj = unwrap_body(obj)
+    if isinstance(obj, dict) and isinstance(obj.get("usage"), dict):
+        return obj
+    return None
+
+
+def record_hit(
+    model: str,
+    stream: bool,
+    ok: bool,
+    usage_obj: Any = None,
+    prompt: int = 0,
+    completion: int = 0,
+    total: int = 0,
+) -> None:
+    if usage_obj is not None:
+        prompt, completion, total = extract_usage(usage_obj)
+    item = (
+        int(time.time()),
+        (model or "")[:80],
+        1 if stream else 0,
+        1 if ok else 0,
+        max(0, int(prompt)),
+        max(0, int(completion)),
+        max(0, int(total)),
+    )
+    try:
+        _stats_q.put_nowait(item)
+    except queue.Full:
+        pass
+
+
+def stats_writer_loop() -> None:
+    con = _stats_connect()
+    last_prune = 0.0
+    pending: list[tuple] = []
+    try:
+        while True:
+            try:
+                item = _stats_q.get(timeout=0.4)
+                pending.append(item)
+            except queue.Empty:
+                item = None
+            if item is not None:
+                while len(pending) < 64:
+                    try:
+                        pending.append(_stats_q.get_nowait())
+                    except queue.Empty:
+                        break
+            if pending:
+                con.executemany(
+                    "INSERT INTO hits(ts,model,stream,ok,prompt,completion,total) VALUES(?,?,?,?,?,?,?)",
+                    pending,
+                )
+                pending.clear()
+            now = time.time()
+            if now - last_prune >= 3600:
+                cutoff = int(now) - STATS_KEEP_SEC
+                con.execute("DELETE FROM hits WHERE ts < ?", (cutoff,))
+                last_prune = now
+    except Exception as e:
+        log(f"stats writer stop: {e}")
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
+def empty_window() -> dict[str, int]:
+    return {
+        "requests": 0,
+        "ok": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "tokens": 0,
+    }
+
+
+def stats_payload() -> dict[str, Any]:
+    now = time.time()
+    cached = _stats_cache.get("payload")
+    if cached is not None and now - float(_stats_cache.get("at") or 0) < 5:
+        return cached
+    windows = (("24h", 86400), ("7d", 7 * 86400), ("30d", 30 * 86400))
+    out: dict[str, Any] = {name: empty_window() for name, _ in windows}
+    out["since"] = None
+    out["recent"] = []
+    try:
+        con = sqlite3.connect(f"file:{STATS_DB}?mode=ro", uri=True, timeout=1)
+        try:
+            now_i = int(now)
+            for name, span in windows:
+                since = now_i - span
+                row = con.execute(
+                    "SELECT COUNT(*), COALESCE(SUM(ok),0), COALESCE(SUM(prompt),0), "
+                    "COALESCE(SUM(completion),0), COALESCE(SUM(total),0) FROM hits WHERE ts >= ?",
+                    (since,),
+                ).fetchone()
+                out[name] = {
+                    "requests": int(row[0] or 0),
+                    "ok": int(row[1] or 0),
+                    "prompt_tokens": int(row[2] or 0),
+                    "completion_tokens": int(row[3] or 0),
+                    "tokens": int(row[4] or 0),
+                }
+            first = con.execute("SELECT MIN(ts) FROM hits").fetchone()[0]
+            out["since"] = int(first) if first else None
+            rows = con.execute(
+                "SELECT ts, model, stream, ok, prompt, completion, total "
+                "FROM hits ORDER BY ts DESC LIMIT 25"
+            ).fetchall()
+            out["recent"] = [
+                {
+                    "ts": int(r[0]),
+                    "model": r[1],
+                    "stream": bool(r[2]),
+                    "ok": bool(r[3]),
+                    "prompt_tokens": int(r[4] or 0),
+                    "completion_tokens": int(r[5] or 0),
+                    "tokens": int(r[6] or 0),
+                }
+                for r in rows
+            ]
+        finally:
+            con.close()
+    except Exception:
+        pass
+    _stats_cache["at"] = now
+    _stats_cache["payload"] = out
+    return out
 
 
 def load_or_create_config() -> dict:
@@ -83,6 +339,7 @@ def load_or_create_config() -> dict:
     cfg.setdefault("port", PORT)
     cfg.setdefault("host", HOST)
     cfg.setdefault("reasoning_effort", "max")
+    cfg.setdefault("proxy_enabled", False)
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
     try:
         os.chmod(CONFIG_PATH, 0o600)
@@ -128,12 +385,23 @@ def load_cline_keys() -> list[str]:
             "SELECT data FROM providerConnections WHERE provider='cline' AND isActive=1"
         ).fetchall()
         con.close()
+        active: list[str] = []
+        rest: list[str] = []
         for (blob,) in rows:
             try:
                 d = json.loads(blob)
             except Exception:
                 continue
-            add(d.get("apiKey") or "")
+            k = (d.get("apiKey") or "").strip()
+            if not k:
+                continue
+            if (d.get("testStatus") or "") == "active":
+                active.append(k)
+            else:
+                rest.append(k)
+        # Prefer 9router testStatus=active so RR starts on keys that recently worked.
+        for k in active + rest:
+            add(k)
 
     if not keys:
         raise SystemExit(
@@ -143,17 +411,109 @@ def load_cline_keys() -> list[str]:
     return keys
 
 
-def next_keys(n: int) -> list[str]:
+def key_tag(k: str) -> str:
+    k = k or ""
+    return f"…{k[-6:]}" if len(k) >= 6 else "…"
+
+
+def next_key() -> str | None:
+    """Consume exactly one key and advance the RR pointer."""
     global _rr
     with _lock:
         if not _keys:
-            return []
-        out = []
-        start = _rr
-        for i in range(min(n, len(_keys))):
-            out.append(_keys[(start + i) % len(_keys)])
-        _rr = (start + 1) % len(_keys)
-        return out
+            return None
+        k = _keys[_rr % len(_keys)]
+        _rr = (_rr + 1) % len(_keys)
+        return k
+
+
+def next_keys(n: int) -> list[str]:
+    out: list[str] = []
+    for _ in range(max(0, n)):
+        k = next_key()
+        if not k:
+            break
+        out.append(k)
+    return out
+
+
+def _add_proxy_url(url: str, seen: set[str], out: list[str]) -> None:
+    u = (url or "").strip()
+    if not u or u in seen:
+        return
+    p = urlparse(u)
+    if p.scheme not in ("http", "https"):
+        return
+    if not p.hostname:
+        return
+    seen.add(u)
+    out.append(u)
+
+
+def load_egress_proxies() -> list[str]:
+    """HTTP proxies from proxies.json, CLINE_PROXIES, then 9router proxyPools isActive=1."""
+    out: list[str] = []
+    seen: set[str] = set()
+
+    env = os.environ.get("CLINE_PROXIES") or os.environ.get("CLINE_PROXY") or ""
+    for part in env.replace(";", ",").split(","):
+        _add_proxy_url(part, seen, out)
+
+    if PROXIES_FILE.is_file():
+        try:
+            blob = json.loads(PROXIES_FILE.read_text(encoding="utf-8"))
+        except Exception as e:
+            log(f"bad proxies file {PROXIES_FILE}: {e}")
+            blob = None
+        if isinstance(blob, list):
+            for item in blob:
+                if isinstance(item, str):
+                    _add_proxy_url(item, seen, out)
+                elif isinstance(item, dict):
+                    _add_proxy_url(str(item.get("proxyUrl") or item.get("url") or ""), seen, out)
+        elif isinstance(blob, dict):
+            for item in blob.get("proxies") or blob.get("urls") or []:
+                _add_proxy_url(item if isinstance(item, str) else str((item or {}).get("proxyUrl") or ""), seen, out)
+
+    db = default_nine_db()
+    if db.is_file():
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        cur = con.cursor()
+        rows = cur.execute(
+            "SELECT data FROM proxyPools WHERE isActive=1"
+        ).fetchall()
+        con.close()
+        for (blob,) in rows:
+            try:
+                d = json.loads(blob)
+            except Exception:
+                continue
+            _add_proxy_url(str(d.get("proxyUrl") or ""), seen, out)
+    return out
+
+
+def proxy_tag(url: str) -> str:
+    p = urlparse(url or "")
+    host = p.hostname or "?"
+    port = p.port or (443 if p.scheme == "https" else 80)
+    return f"{host}:{port}"
+
+
+def next_proxy() -> str | None:
+    global _proxy_rr
+    with _lock:
+        if not _proxy_enabled or not _proxies:
+            return None
+        u = _proxies[_proxy_rr % len(_proxies)]
+        _proxy_rr = (_proxy_rr + 1) % len(_proxies)
+        return u
+
+
+def open_upstream(req: Request, timeout: int = 180, proxy_url: str | None = None):
+    if proxy_url:
+        opener = build_opener(ProxyHandler({"http": proxy_url, "https": proxy_url}))
+        return opener.open(req, timeout=timeout)
+    return urlopen(req, timeout=timeout)
 
 
 def cline_headers(api_key: str) -> dict[str, str]:
@@ -309,6 +669,7 @@ def listed_models() -> list[dict]:
 
 def settings_payload() -> dict:
     models = listed_models()
+    sample = [proxy_tag(u) for u in _proxies[:8]]
     return {
         "ok": True,
         "api_key": _proxy_key,
@@ -320,11 +681,15 @@ def settings_payload() -> dict:
         "default_model": DEFAULT_MODEL,
         "models": models,
         "upstream": UPSTREAM,
+        "proxy_enabled": _proxy_enabled,
+        "proxies": len(_proxies),
+        "proxy_sample": sample,
+        "stats": stats_payload(),
     }
 
 
 def save_config_patch(patch: dict) -> dict:
-    global _default_effort, _proxy_key
+    global _default_effort, _proxy_key, _proxy_enabled
     cfg = load_or_create_config()
     if "reasoning_effort" in patch:
         effort = _norm_effort(patch.get("reasoning_effort")) or "max"
@@ -332,6 +697,10 @@ def save_config_patch(patch: dict) -> dict:
             effort = "max"
         cfg["reasoning_effort"] = effort
         _default_effort = effort
+    if "proxy_enabled" in patch:
+        _proxy_enabled = bool(patch.get("proxy_enabled"))
+        cfg["proxy_enabled"] = _proxy_enabled
+        log(f"egress proxy {'ON' if _proxy_enabled else 'OFF'} pool={len(_proxies)}")
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
     return settings_payload()
 
@@ -341,6 +710,96 @@ def extract_bearer(handler: BaseHTTPRequestHandler) -> str:
     if auth.lower().startswith("bearer "):
         return auth[7:].strip()
     return (handler.headers.get("x-api-key") or "").strip()
+
+
+def _client_ip(handler: BaseHTTPRequestHandler) -> str:
+    # Socket peer only. X-Forwarded-For is untrusted: this process binds
+    # 0.0.0.0:20129 with no reverse proxy in front.
+    return handler.client_address[0] if handler.client_address else ""
+
+
+def _cookie_value(handler: BaseHTTPRequestHandler, name: str) -> str:
+    raw = handler.headers.get("Cookie") or ""
+    if not raw:
+        return ""
+    jar = SimpleCookie()
+    try:
+        jar.load(raw)
+    except Exception:
+        return ""
+    morsel = jar.get(name)
+    return morsel.value if morsel else ""
+
+
+def _purge_sessions(now: float) -> None:
+    dead = [tok for tok, exp in _sessions.items() if exp <= now]
+    for tok in dead:
+        _sessions.pop(tok, None)
+
+
+def session_ok(handler: BaseHTTPRequestHandler) -> bool:
+    token = _cookie_value(handler, COOKIE_NAME)
+    if not token:
+        return False
+    now = time.time()
+    with _lock:
+        _purge_sessions(now)
+        exp = _sessions.get(token)
+        if exp is None or exp <= now:
+            _sessions.pop(token, None)
+            return False
+        _sessions[token] = now + SESSION_TTL
+        return True
+
+
+def issue_session() -> str:
+    token = secrets.token_urlsafe(32)
+    with _lock:
+        _sessions[token] = time.time() + SESSION_TTL
+    return token
+
+
+def revoke_session(handler: BaseHTTPRequestHandler) -> None:
+    token = _cookie_value(handler, COOKIE_NAME)
+    if not token:
+        return
+    with _lock:
+        _sessions.pop(token, None)
+
+
+def session_cookie_header(token: str, max_age: int = SESSION_TTL) -> str:
+    # No Secure flag: UI is served over plain HTTP on :20129.
+    return (
+        f"{COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}"
+    )
+
+
+def login_allowed(ip: str) -> bool:
+    now = time.time()
+    with _lock:
+        hits = [t for t in _login_fails.get(ip, []) if now - t < LOGIN_WINDOW]
+        _login_fails[ip] = hits
+        return len(hits) < LOGIN_MAX_FAILS
+
+
+def login_fail(ip: str) -> None:
+    with _lock:
+        _login_fails.setdefault(ip, []).append(time.time())
+
+
+def login_ok(ip: str) -> None:
+    with _lock:
+        _login_fails.pop(ip, None)
+
+
+def key_matches(got: str) -> bool:
+    if not got or not _proxy_key:
+        return False
+    a, b = got.encode("utf-8"), _proxy_key.encode("utf-8")
+    if len(a) != len(b):
+        secrets.compare_digest(a, a)
+        return False
+    return secrets.compare_digest(a, b)
 
 
 def json_bytes(obj: Any, status: int = 200) -> tuple[int, bytes, str]:
@@ -376,27 +835,118 @@ class Handler(BaseHTTPRequestHandler):
 
     def _auth_ok(self) -> bool:
         got = extract_bearer(self)
-        if not got or not secrets.compare_digest(got, _proxy_key):
+        if not key_matches(got):
             self._err(401, "API key required. Set Authorization: Bearer <proxy api key>", "authentication_error")
             return False
         return True
 
+    def _ui_ok(self) -> bool:
+        if session_ok(self):
+            return True
+        if key_matches(extract_bearer(self)):
+            return True
+        return False
+
+    def _send_html(self, path: Path, extra: dict | None = None) -> None:
+        if not path.is_file():
+            self._err(404, f"{path.name} missing")
+            return
+        self._send(200, path.read_bytes(), "text/html; charset=utf-8", extra)
+
+    def _redirect(self, location: str, extra: dict | None = None) -> None:
+        headers = {"Location": location}
+        if extra:
+            headers.update(extra)
+        self._send(302, b"", "text/plain", headers)
+
+    def _read_json_body(self) -> dict | None:
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > 1_000_000:
+            self._err(413, "body too large")
+            return None
+        raw = self.rfile.read(n) if n else b"{}"
+        try:
+            body = json.loads(raw.decode("utf-8"))
+        except Exception:
+            self._err(400, "invalid JSON body")
+            return None
+        if not isinstance(body, dict):
+            self._err(400, "body must be object")
+            return None
+        return body
+
+    def _handle_login(self) -> None:
+        ip = _client_ip(self)
+        if not login_allowed(ip):
+            self._err(429, "too many login attempts, try later", "rate_limit_error")
+            return
+        body = self._read_json_body()
+        if body is None:
+            return
+        got = str(body.get("api_key") or body.get("key") or body.get("password") or "").strip()
+        if not key_matches(got):
+            login_fail(ip)
+            log(f"login fail ip={ip}")
+            self._err(401, "invalid API key", "authentication_error")
+            return
+        login_ok(ip)
+        token = issue_session()
+        log(f"login ok ip={ip}")
+        _, payload, ctype = json_bytes({"ok": True})
+        self._send(200, payload, ctype, {"Set-Cookie": session_cookie_header(token)})
+
+    def _handle_logout(self) -> None:
+        revoke_session(self)
+        extra = {"Set-Cookie": session_cookie_header("deleted", max_age=0)}
+        path = self.path.split("?", 1)[0]
+        if path == "/logout":
+            extra["Location"] = "/login"
+            self._send(302, b"", "text/plain", extra)
+            return
+        _, payload, ctype = json_bytes({"ok": True})
+        self._send(200, payload, ctype, extra)
+
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
-        if path in ("/", "/index.html", "/settings"):
-            html = WEB_DIR / "index.html"
-            if not html.is_file():
-                self._err(404, "web/index.html missing")
+        if path in ("/login", "/login.html"):
+            if session_ok(self):
+                self._redirect("/")
                 return
-            self._send(200, html.read_bytes(), "text/html; charset=utf-8")
+            self._send_html(WEB_DIR / "login.html")
+            return
+        if path == "/logout":
+            self._handle_logout()
+            return
+        if path in ("/", "/index.html", "/settings"):
+            if not self._ui_ok():
+                self._redirect("/login")
+                return
+            self._send_html(WEB_DIR / "index.html")
             return
         if path in ("/health", "/v1/health"):
             _, payload, ctype = json_bytes(
-                {"ok": True, "keys": len(_keys), "upstream": UPSTREAM, "default_model": DEFAULT_MODEL}
+                {
+                    "ok": True,
+                    "keys": len(_keys),
+                    "upstream": UPSTREAM,
+                    "default_model": DEFAULT_MODEL,
+                    "proxy_enabled": _proxy_enabled,
+                    "proxies": len(_proxies),
+                }
             )
             self._send(200, payload, ctype)
             return
+        if path == "/api/session":
+            if not self._ui_ok():
+                self._err(401, "not signed in", "authentication_error")
+                return
+            _, payload, ctype = json_bytes({"ok": True})
+            self._send(200, payload, ctype)
+            return
         if path == "/api/settings":
+            if not self._ui_ok():
+                self._err(401, "not signed in", "authentication_error")
+                return
             _, payload, ctype = json_bytes(settings_payload())
             self._send(200, payload, ctype)
             return
@@ -410,16 +960,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
+        if path == "/api/login":
+            self._handle_login()
+            return
+        if path == "/api/logout":
+            self._handle_logout()
+            return
         if path == "/api/settings":
-            n = int(self.headers.get("Content-Length") or 0)
-            raw = self.rfile.read(n) if n else b"{}"
-            try:
-                body = json.loads(raw.decode("utf-8"))
-            except Exception:
-                self._err(400, "invalid JSON body")
+            if not self._ui_ok():
+                self._err(401, "not signed in", "authentication_error")
                 return
-            if not isinstance(body, dict):
-                self._err(400, "body must be object")
+            body = self._read_json_body()
+            if body is None:
                 return
             _, payload, ctype = json_bytes(save_config_patch(body))
             self._send(200, payload, ctype)
@@ -453,10 +1005,16 @@ class Handler(BaseHTTPRequestHandler):
         last_err = "upstream failed"
         last_status = 502
         last_body = b""
-        for key in next_keys(MAX_FAILOVER):
+        for _attempt in range(MAX_FAILOVER):
+            key = next_key()
+            if not key:
+                break
+            px = next_proxy()
+            via = f" via {proxy_tag(px)}" if px else " direct"
+            log(f"try json key={key_tag(key)}{via}")
             try:
                 req = Request(UPSTREAM, data=data, headers=cline_headers(key), method="POST")
-                with urlopen(req, timeout=180) as resp:
+                with open_upstream(req, timeout=180, proxy_url=px) as resp:
                     raw = resp.read()
                     status = resp.status
             except HTTPError as e:
@@ -464,13 +1022,15 @@ class Handler(BaseHTTPRequestHandler):
                 status = e.code
                 last_status, last_body, last_err = status, raw, f"HTTP {status}"
                 if status in RETRY_STATUSES:
-                    log(f"failover json status={status} body={raw[:180]!r}")
+                    log(f"failover json key={key_tag(key)}{via} status={status} body={raw[:180]!r}")
                     continue
+                log(f"fail json key={key_tag(key)}{via} status={status}")
+                record_hit(str(req_body.get("model") or ""), stream=False, ok=False)
                 self._send(status, raw, "application/json")
                 return
             except (URLError, TimeoutError, OSError) as e:
                 last_status, last_err = 502, str(e)
-                log(f"failover json net={e}")
+                log(f"failover json key={key_tag(key)}{via} net={e}")
                 continue
             try:
                 obj = json.loads(raw.decode("utf-8", "replace"))
@@ -478,9 +1038,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(status, raw, "application/json")
                 return
             obj = normalize_completion(obj)
+            log(f"ok json key={key_tag(key)}{via} status={status}")
+            record_hit(str(req_body.get("model") or ""), stream=False, ok=True, usage_obj=obj)
             _, payload, ctype = json_bytes(obj)
             self._send(200, payload, ctype)
             return
+        record_hit(str(req_body.get("model") or ""), stream=False, ok=False)
         _, payload, ctype = json_bytes(
             {"error": {"message": last_err, "type": "api_error", "code": last_status, "body": last_body[:300].decode("utf-8", "replace")}}
         )
@@ -490,21 +1053,29 @@ class Handler(BaseHTTPRequestHandler):
         data = json.dumps(req_body).encode("utf-8")
         last_err = "upstream failed"
         last_status = 502
-        for key in next_keys(MAX_FAILOVER):
+        for _attempt in range(MAX_FAILOVER):
+            key = next_key()
+            if not key:
+                break
+            px = next_proxy()
+            via = f" via {proxy_tag(px)}" if px else " direct"
+            log(f"try stream key={key_tag(key)}{via}")
             try:
                 req = Request(UPSTREAM, data=data, headers=cline_headers(key), method="POST")
-                resp = urlopen(req, timeout=180)
+                resp = open_upstream(req, timeout=180, proxy_url=px)
             except HTTPError as e:
                 raw = e.read() or b""
                 last_status, last_err = e.code, f"HTTP {e.code} {raw[:180]!r}"
                 if e.code in RETRY_STATUSES:
-                    log(f"failover stream status={e.code}")
+                    log(f"failover stream key={key_tag(key)}{via} status={e.code}")
                     continue
+                log(f"fail stream key={key_tag(key)}{via} status={e.code}")
+                record_hit(str(req_body.get("model") or ""), stream=True, ok=False)
                 self._send(e.code, raw, e.headers.get("Content-Type") or "application/json")
                 return
             except (URLError, TimeoutError, OSError) as e:
                 last_status, last_err = 502, str(e)
-                log(f"failover stream net={e}")
+                log(f"failover stream key={key_tag(key)}{via} net={e}")
                 continue
             ctype = (resp.headers.get("Content-Type") or "").lower()
             if "text/event-stream" not in ctype and "application/json" in ctype:
@@ -513,6 +1084,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     obj = normalize_completion(json.loads(raw.decode("utf-8", "replace")))
                 except Exception:
+                    record_hit(str(req_body.get("model") or ""), stream=True, ok=True)
                     self._send(200, raw, "application/json")
                     return
                 self._sse_from_json(obj)
@@ -526,7 +1098,8 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             buf = b""
             rc_chars = 0
-            c_chars = 0
+            last_usage: dict[str, Any] | None = None
+            aborted = False
             try:
                 while True:
                     chunk = resp.read(4096)
@@ -535,6 +1108,9 @@ class Handler(BaseHTTPRequestHandler):
                     buf += chunk
                     while b"\n" in buf:
                         line, buf = buf.split(b"\n", 1)
+                        parsed = _sse_usage(line)
+                        if parsed is not None:
+                            last_usage = parsed
                         out = self._map_sse_line(line)
                         if out is None:
                             continue
@@ -543,18 +1119,29 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(out + b"\n")
                         self.wfile.flush()
                 if buf.strip():
+                    parsed = _sse_usage(buf)
+                    if parsed is not None:
+                        last_usage = parsed
                     out = self._map_sse_line(buf)
                     if out is not None:
                         self.wfile.write(out + b"\n")
                 log(f"stream done rc_events~={rc_chars}")
             except Exception as e:
+                aborted = True
                 log(f"stream abort: {e}")
             finally:
                 try:
                     resp.close()
                 except Exception:
                     pass
+            record_hit(
+                str(req_body.get("model") or ""),
+                stream=True,
+                ok=not aborted,
+                usage_obj=last_usage,
+            )
             return
+        record_hit(str(req_body.get("model") or ""), stream=True, ok=False)
         _, payload, ctype = json_bytes(
             {"error": {"message": last_err, "type": "api_error", "code": last_status}}
         )
@@ -596,6 +1183,7 @@ class Handler(BaseHTTPRequestHandler):
         emit({}, finish)
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
+        record_hit(str(obj.get("model") or ""), stream=True, ok=True, usage_obj=obj)
 
     def _map_sse_line(self, line: bytes) -> bytes | None:
         raw = line.rstrip(b"\r")
@@ -621,23 +1209,33 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    global _keys, _proxy_key, _default_effort, HOST, PORT
+    global _keys, _proxy_key, _default_effort, HOST, PORT, _proxy_enabled, _proxies
     ROOT.mkdir(parents=True, exist_ok=True)
     cfg = load_or_create_config()
     _proxy_key = cfg["api_key"]
     _default_effort = _norm_effort(cfg.get("reasoning_effort")) or "max"
+    _proxy_enabled = bool(cfg.get("proxy_enabled"))
     _keys = load_cline_keys()
+    _proxies = load_egress_proxies()
     host = cfg.get("host") or HOST
     port = int(cfg.get("port") or PORT)
     HOST, PORT = host, port
+    init_stats_db()
+    threading.Thread(target=stats_writer_loop, name="stats-writer", daemon=True).start()
     httpd = ThreadingHTTPServer((host, port), Handler)
     log(f"cline-reason-proxy listening http://{host}:{port}/")
     log(f"settings UI: http://127.0.0.1:{port}/")
-    log(f"Cline keys loaded: {len(_keys)}")
+    log(f"Cline keys loaded: {len(_keys)} (RR consume-1, failover={MAX_FAILOVER})")
+    log(f"RR head: {', '.join(key_tag(k) for k in _keys[:8])}")
+    log(f"egress proxies: {len(_proxies)} enabled={_proxy_enabled}")
+    if _proxies:
+        log(f"proxy head: {', '.join(proxy_tag(u) for u in _proxies[:8])}")
     log(f"Auth: Authorization: Bearer <api_key in {CONFIG_PATH}>")
     log(f"Default model: {DEFAULT_MODEL}")
     log(f"reasoning effort default: {_default_effort}")
     log("include_reasoning=true injected; reasoning -> reasoning_content")
+    threading.Thread(target=watchdog_loop, name="sd-watchdog", daemon=True).start()
+    sd_notify("READY=1")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

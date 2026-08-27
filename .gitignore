@@ -1,5 +1,8 @@
 config.json
 keys.json
+proxies.json
+stats.sqlite
+stats.sqlite-*
 *.pyc
 __pycache__/
 .venv/

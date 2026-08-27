@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>CRP · Sign in</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --surface: #171a21;
+    --ink: #eceff4;
+    --muted: #8d95a3;
+    --faint: #6b7380;
+    --line: #2a303a;
+    --accent: #5b8def;
+    --accent-soft: #1c2a44;
+    --bad: #e15b54;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); }
+  body { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .card {
+    width: 100%; max-width: 400px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 28px 26px 24px;
+  }
+  .mark { font-size: 13px; color: var(--faint); margin-bottom: 6px; letter-spacing: .02em; }
+  h1 { font-size: 22px; font-weight: 650; margin: 0 0 8px; letter-spacing: -.03em; }
+  .sub { color: var(--muted); margin: 0 0 22px; font-size: 13px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  input[type="password"], input[type="text"] {
+    width: 100%; background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+    font: 13px/1.4 var(--mono); padding: 11px 12px; border-radius: 8px;
+  }
+  input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .btns { display: flex; gap: 8px; margin-top: 14px; }
+  button {
+    font: 500 13px/1 var(--sans); background: transparent; color: var(--ink);
+    border: 1px solid var(--line); padding: 10px 14px; cursor: pointer; border-radius: 8px;
+  }
+  button.primary { background: var(--accent); border-color: transparent; color: #fff; }
+  button.primary:hover { filter: brightness(1.06); }
+  button:hover { border-color: #4a5360; }
+  button.primary:hover { border-color: transparent; }
+  button:disabled { opacity: .55; cursor: default; }
+  .hint { color: var(--faint); font-size: 12px; margin: 16px 0 0; }
+  .err { color: var(--bad); font-size: 13px; min-height: 1.2em; margin-top: 12px; }
+  .ep { font-family: var(--mono); font-size: 12px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="mark">CRP</div>
+    <h1>Sign in</h1>
+    <p class="sub">Enter the proxy API key. A session cookie stays on this browser.</p>
+    <form id="f" autocomplete="off">
+      <label for="key">API key</label>
+      <input id="key" name="api_key" type="password" spellcheck="false" autocapitalize="off" autocomplete="current-password" autofocus/>
+      <div class="btns">
+        <button type="submit" class="primary" id="go">Continue</button>
+        <button type="button" id="toggle">Show</button>
+      </div>
+      <div class="err" id="err"></div>
+      <p class="hint">Same Bearer token as <span class="ep">/v1</span>. Cookie <span class="ep">crp_session</span>, 30 days.</p>
+    </form>
+  </div>
+<script>
+const key = document.getElementById("key");
+const err = document.getElementById("err");
+const go = document.getElementById("go");
+document.getElementById("toggle").onclick = () => {
+  const show = key.type === "password";
+  key.type = show ? "text" : "password";
+  document.getElementById("toggle").textContent = show ? "Hide" : "Show";
+};
+document.getElementById("f").onsubmit = async (e) => {
+  e.preventDefault();
+  err.textContent = "";
+  go.disabled = true;
+  try {
+    const r = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ api_key: key.value.trim() }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (r.ok) {
+      location.replace("/");
+      return;
+    }
+    err.textContent = (body.error && body.error.message) || ("Sign in failed · " + r.status);
+  } catch (ex) {
+    err.textContent = "Network error";
+  } finally {
+    go.disabled = false;
+  }
+};
+</script>
+</body>
+</html>

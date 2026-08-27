@@ -3,135 +3,288 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>CRP · settings</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+<title>CRP</title>
 <style>
   :root {
-    --bg: #13120f;
-    --bg-2: #1b1a16;
-    --ink: #f3eee4;
-    --muted: #8e8778;
-    --line: #2e2c26;
-    --accent: #c4a35a;
-    --ok: #7ea36f;
-    --bad: #c45c4a;
-    --paid: #b56a3a;
+    --bg: #0f1115;
+    --surface: #171a21;
+    --surface-2: #1d2129;
+    --ink: #eceff4;
+    --muted: #8d95a3;
+    --faint: #6b7380;
+    --line: #2a303a;
+    --line-2: #343b46;
+    --accent: #5b8def;
+    --accent-soft: #1c2a44;
+    --ok: #3cb88a;
+    --ok-bg: #163227;
+    --bad: #e15b54;
+    --bad-bg: #3a1c1b;
+    --warn: #c9a227;
+    --radius: 10px;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 "IBM Plex Sans", ui-sans-serif, sans-serif; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); }
   body { min-height: 100vh; }
-  .wrap { max-width: 880px; margin: 0 auto; padding: 36px 28px 72px; }
-  header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 8px; }
-  .mark { font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
-  h1 { font-size: 22px; font-weight: 500; margin: 6px 0 0; letter-spacing: -.02em; }
-  .live { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted); }
-  .live b { color: var(--ok); font-weight: 500; }
-  .row { display: grid; grid-template-columns: 148px 1fr; gap: 8px 28px; padding: 22px 0; border-bottom: 1px solid var(--line); }
-  .lab { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); padding-top: 4px; }
-  .val { min-width: 0; }
-  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
-  .keybox { display: flex; gap: 8px; align-items: center; background: var(--bg-2); border: 1px solid var(--line); padding: 10px 12px; }
-  .keybox code { flex: 1; font-family: "IBM Plex Mono", monospace; font-size: 13px; word-break: break-all; color: var(--ink); }
-  button, select { font: 12px/1 "IBM Plex Sans", sans-serif; letter-spacing: .06em; text-transform: uppercase; background: transparent; color: var(--ink); border: 1px solid var(--line); padding: 8px 12px; cursor: pointer; }
-  button:hover { border-color: var(--accent); color: var(--accent); }
-  button.primary { border-color: var(--accent); color: var(--accent); }
-  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
-  .seg { display: flex; gap: 0; border: 1px solid var(--line); width: fit-content; }
-  .seg button { border: 0; border-right: 1px solid var(--line); padding: 9px 14px; }
+  a { color: inherit; }
+  .shell { max-width: 1120px; margin: 0 auto; padding: 0 24px 64px; }
+  .bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    height: 56px; border-bottom: 1px solid var(--line); margin: 0 -24px 28px;
+    padding: 0 24px; background: rgba(15,17,21,.92); position: sticky; top: 0; z-index: 10;
+    backdrop-filter: blur(10px);
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  .brand strong { font-size: 15px; font-weight: 650; letter-spacing: -.02em; }
+  .brand span { color: var(--faint); font-size: 13px; }
+  .bar-right { display: flex; align-items: center; gap: 12px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12px; color: var(--muted); font-family: var(--mono);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(60,184,138,.18); }
+  .dot.off { background: var(--bad); }
+  button {
+    font: 500 13px/1 var(--sans); background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--line-2); padding: 7px 12px; border-radius: 7px; cursor: pointer;
+  }
+  button:hover { border-color: #4a5360; background: #232833; }
+  button.primary { background: var(--accent); border-color: transparent; color: #fff; }
+  button.primary:hover { filter: brightness(1.06); }
+  button.ghost { background: transparent; border-color: transparent; color: var(--muted); padding: 7px 10px; }
+  button.ghost:hover { color: var(--ink); background: var(--surface-2); }
+  .usage {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 28px;
+  }
+  .stat {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 18px 18px 16px;
+  }
+  .stat .k { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .stat .req { font-size: 28px; font-weight: 650; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+  .stat .tok { margin-top: 10px; font-family: var(--mono); font-size: 13px; color: var(--ink); }
+  .stat .tok b { font-weight: 650; }
+  .stat .tok em { font-style: normal; color: var(--faint); margin-right: 4px; }
+  .stat .okline { margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .layout { display: grid; grid-template-columns: 340px 1fr; gap: 12px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 18px; min-width: 0;
+  }
+  .card h2 {
+    margin: 0; font-size: 13px; font-weight: 600; color: var(--ink);
+  }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; }
+  .card-head h2 { margin: 0; }
+  button.tiny { padding: 5px 9px; font-size: 12px; color: var(--muted); }
+  .wide { grid-column: 1 / -1; }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 10px 0 0; }
+  .keyrow {
+    display: flex; gap: 8px; align-items: center; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  }
+  .keyrow code { flex: 1; font-family: var(--mono); font-size: 12px; word-break: break-all; color: var(--ink); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    border: 0; border-right: 1px solid var(--line); border-radius: 0; background: transparent;
+    padding: 8px 14px; color: var(--muted);
+  }
   .seg button:last-child { border-right: 0; }
-  .seg button.on { background: var(--accent); color: #16140f; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; padding: 0 0 8px; }
-  td { padding: 7px 10px 7px 0; border-top: 1px solid var(--line); font-family: "IBM Plex Mono", monospace; font-size: 12px; vertical-align: top; }
-  .tag { display: inline-block; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; padding: 2px 6px; border: 1px solid currentColor; }
-  .tag.free { color: var(--ok); }
-  .tag.paid { color: var(--paid); }
-  .ep { font-family: "IBM Plex Mono", monospace; font-size: 13px; }
-  .warn { color: var(--paid); font-size: 12px; margin-top: 10px; }
-  .toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg-2); border: 1px solid var(--accent); color: var(--accent); padding: 10px 14px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .seg button:hover { background: var(--surface-2); color: var(--ink); }
+  .seg button.on { background: var(--accent-soft); color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; color: var(--faint); font-size: 11px; font-weight: 600;
+    padding: 0 12px 8px 0; border-bottom: 1px solid var(--line);
+  }
+  td {
+    padding: 9px 12px 9px 0; border-bottom: 1px solid var(--line);
+    font-family: var(--mono); font-size: 12px; vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: rgba(255,255,255,.015); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  th.num { text-align: right; }
+  .muted { color: var(--muted); }
+  .tag {
+    display: inline-flex; align-items: center; font: 600 10px/1 var(--sans);
+    letter-spacing: .04em; text-transform: uppercase; padding: 3px 7px; border-radius: 999px;
+  }
+  .tag.ok { color: var(--ok); background: var(--ok-bg); }
+  .tag.fail { color: var(--bad); background: var(--bad-bg); }
+  .tag.sse { color: var(--accent); background: var(--accent-soft); }
+  .tag.free { color: var(--ok); background: var(--ok-bg); }
+  .tag.paid { color: var(--warn); background: #2e2714; }
+  .ep-list { display: grid; gap: 8px; }
+  .ep-item { display: grid; grid-template-columns: 72px 1fr auto; gap: 10px; align-items: center; }
+  .ep-item .lab { font-size: 12px; color: var(--muted); }
+  .ep-item code {
+    font-family: var(--mono); font-size: 12px; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
+    padding: 8px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ep-item button { padding: 6px 10px; font-size: 12px; }
+  .px-sample { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-top: 10px; line-height: 1.65; word-break: break-all; }
+  .empty { color: var(--muted); font-family: var(--sans) !important; padding: 16px 0 !important; }
+  .toast {
+    position: fixed; bottom: 20px; right: 20px; background: var(--surface-2);
+    border: 1px solid var(--line-2); color: var(--ink); padding: 10px 14px;
+    font-size: 13px; border-radius: 8px; opacity: 0; pointer-events: none; transition: opacity .18s; z-index: 20;
+  }
   .toast.show { opacity: 1; }
+  @media (max-width: 900px) {
+    .usage, .layout { grid-template-columns: 1fr 1fr; }
+    .wide { grid-column: auto; }
+  }
   @media (max-width: 640px) {
-    .row { grid-template-columns: 1fr; }
-    .wrap { padding: 24px 16px 64px; }
+    .shell { padding: 0 14px 48px; }
+    .bar { margin: 0 -14px 20px; padding: 0 14px; }
+    .usage, .layout { grid-template-columns: 1fr; }
+    .ep-item { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <div>
-        <div class="mark">cline-reason-proxy</div>
-        <h1>Settings</h1>
+  <div class="shell">
+    <div class="bar">
+      <div class="brand">
+        <strong>CRP</strong>
+        <span>Cline reason proxy</span>
       </div>
-      <div class="live" id="live">checking…</div>
-    </header>
+      <div class="bar-right">
+        <div class="pill" id="live"><span class="dot"></span> checking</div>
+        <button type="button" class="ghost" id="btn-logout">Sign out</button>
+      </div>
+    </div>
 
-    <div class="row">
-      <div class="lab">API key</div>
-      <div class="val">
-        <div class="keybox">
-          <code id="key">loading…</code>
-        </div>
-        <div class="btns" style="margin-top:10px">
+    <div class="usage">
+      <div class="stat">
+        <div class="k">Last 24 hours</div>
+        <div class="req" id="u24-req">—</div>
+        <div class="tok" id="u24-tok"><em>tokens</em> —</div>
+        <div class="okline" id="u24-ok"></div>
+      </div>
+      <div class="stat">
+        <div class="k">Last 7 days</div>
+        <div class="req" id="u7-req">—</div>
+        <div class="tok" id="u7-tok"><em>tokens</em> —</div>
+        <div class="okline" id="u7-ok"></div>
+      </div>
+      <div class="stat">
+        <div class="k">Last 30 days</div>
+        <div class="req" id="u30-req">—</div>
+        <div class="tok" id="u30-tok"><em>tokens</em> —</div>
+        <div class="okline" id="u30-ok"></div>
+      </div>
+    </div>
+
+    <div class="layout">
+      <div class="card">
+        <h2>API key</h2>
+        <div class="keyrow"><code id="key">loading…</code></div>
+        <div class="actions">
           <button type="button" id="btn-toggle">Show</button>
           <button type="button" class="primary" id="btn-copy">Copy</button>
         </div>
-        <p class="hint">Bearer token for <span class="ep">/v1/models</span> and <span class="ep">/v1/chat/completions</span>. Stored in <span class="ep">config.json</span>.</p>
-        <p class="warn">Bound on 0.0.0.0 — anyone on this LAN who opens this page can see the key.</p>
+        <p class="hint">Bearer token for /v1. This page requires a signed-in session.</p>
       </div>
-    </div>
 
-    <div class="row">
-      <div class="lab">Reasoning</div>
-      <div class="val">
-        <div class="seg" id="effort">
-          <button type="button" data-v="low">low</button>
-          <button type="button" data-v="high">high</button>
-          <button type="button" data-v="max">max</button>
+      <div class="card">
+        <h2>Client</h2>
+        <div class="keyrow"><code id="snippet"></code></div>
+        <div class="actions">
+          <button type="button" class="primary" id="btn-snip">Copy config</button>
         </div>
-        <p class="hint">Cline GLM only accepts <span class="ep">low | high | max</span>. Hermes <span class="ep">xhigh</span> maps to <span class="ep">max</span>. Default applied on every request.</p>
-        <p class="hint" id="effort-now"></p>
+        <p class="hint">OpenAI-compatible base URL and key.</p>
       </div>
-    </div>
 
-    <div class="row">
-      <div class="lab">Models</div>
-      <div class="val">
+      <div class="card">
+        <h2>Reasoning</h2>
+        <div class="seg" id="effort">
+          <button type="button" data-v="low">Low</button>
+          <button type="button" data-v="high">High</button>
+          <button type="button" data-v="max">Max</button>
+        </div>
+        <p class="hint" id="effort-now"></p>
+        <p class="hint">Applied on every request. Hermes xhigh maps to max.</p>
+      </div>
+
+      <div class="card">
+        <h2>Egress</h2>
+        <div class="seg" id="px-toggle">
+          <button type="button" data-on="0">Off</button>
+          <button type="button" data-on="1">On</button>
+        </div>
+        <p class="hint" id="px-now"></p>
+        <p class="hint">On uses one HTTP proxy per attempt. Off goes direct to api.cline.bot.</p>
+        <div class="px-sample" id="px-sample"></div>
+      </div>
+
+      <div class="card wide">
+        <h2>Endpoints</h2>
+        <div class="ep-list">
+          <div class="ep-item">
+            <div class="lab">Base</div>
+            <code id="ep-base"></code>
+            <button type="button" id="btn-ep-base">Copy</button>
+          </div>
+          <div class="ep-item">
+            <div class="lab">Chat</div>
+            <code id="ep-chat"></code>
+            <span></span>
+          </div>
+          <div class="ep-item">
+            <div class="lab">Models</div>
+            <code id="ep-models"></code>
+            <span></span>
+          </div>
+          <div class="ep-item">
+            <div class="lab">Health</div>
+            <code id="ep-health"></code>
+            <span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card wide">
+        <div class="card-head">
+          <h2>Recent requests</h2>
+          <button type="button" class="tiny" id="btn-refresh">Refresh</button>
+        </div>
         <table>
-          <thead><tr><th>picker</th><th>upstream</th><th></th></tr></thead>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Model</th>
+              <th></th>
+              <th class="num">Prompt</th>
+              <th class="num">Out</th>
+              <th class="num">Total</th>
+            </tr>
+          </thead>
+          <tbody id="recent"></tbody>
+        </table>
+        <p class="hint" id="stats-since">Counts start when this proxy version is running. Prompt text is not stored.</p>
+      </div>
+
+      <div class="card wide">
+        <h2>Models</h2>
+        <table>
+          <thead><tr><th>ID</th><th>Upstream</th><th></th></tr></thead>
           <tbody id="models"></tbody>
         </table>
-        <p class="hint">One upstream. Old picker names still work if a client already has them saved.</p>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="lab">Endpoints</div>
-      <div class="val">
-        <table>
-          <tr><td style="border:0;color:var(--muted);width:88px">Windows</td><td style="border:0" class="ep" id="ep-win"></td></tr>
-          <tr><td style="color:var(--muted)">WSL2</td><td class="ep">http://&lt;windows-host-ip&gt;:20129/v1<br/>from Ubuntu: <span class="ep">ip route | awk '/^default/{print $3}'</span></td></tr>
-        </table>
-        <p class="hint">WSL <span class="ep">127.0.0.1</span> is not this proxy. Last known host vEthernet: <span class="ep">172.19.96.1</span></p>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="lab">Client</div>
-      <div class="val">
-        <div class="keybox"><code id="snippet"></code></div>
-        <div class="btns" style="margin-top:10px">
-          <button type="button" id="btn-snip">Copy snippet</button>
-        </div>
+        <p class="hint">Catalog served by this proxy. Saved aliases still work.</p>
       </div>
     </div>
   </div>
-  <div class="toast" id="toast">copied</div>
+  <div class="toast" id="toast">Copied</div>
 <script>
 const $ = (id) => document.getElementById(id);
-let state = { api_key: "", reasoning_effort: "max", host: "0.0.0.0", port: 20129, keys: 0, models: [], include_reasoning: true };
+let state = { api_key: "", reasoning_effort: "max", host: "0.0.0.0", port: 20129, keys: 0, models: [], include_reasoning: true, proxy_enabled: false, proxies: 0, proxy_sample: [], stats: { "24h": {}, "7d": {}, "30d": {}, recent: [] } };
 let keyShown = false;
 
 function toast(t) {
@@ -146,63 +299,158 @@ function mask(k) {
   if (k.length < 12) return "•".repeat(k.length);
   return k.slice(0, 7) + "…" + k.slice(-4);
 }
-function originBase() {
-  const p = location.port || state.port;
-  return location.protocol + "//" + location.hostname + ":" + p + "/v1";
+function originRoot() {
+  const host = location.hostname;
+  const port = location.port || state.port;
+  const needsPort = !(location.protocol === "https:" && port === "443") && !(location.protocol === "http:" && (port === "80" || port === ""));
+  return location.protocol + "//" + host + (needsPort ? ":" + port : "");
+}
+function originBase() { return originRoot() + "/v1"; }
+function copyText(t, label) {
+  return navigator.clipboard.writeText(t).then(() => toast(label || "Copied"));
+}
+function fmtNum(n) {
+  n = Number(n || 0);
+  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1e4) return (n / 1e3).toFixed(n >= 1e5 ? 0 : 1).replace(/\.0$/, "") + "k";
+  return String(n);
+}
+function fmtTime(ts) {
+  if (!ts) return "—";
+  const d = new Date(ts * 1000);
+  const p = (n) => String(n).padStart(2, "0");
+  return p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+}
+function fillWindow(prefix, w) {
+  w = w || {};
+  $(prefix + "-req").textContent = fmtNum(w.requests);
+  $(prefix + "-ok").textContent = fmtNum(w.ok || 0) + " ok · " + fmtNum((w.requests || 0) - (w.ok || 0)) + " fail";
+  $(prefix + "-tok").innerHTML = "<em>tokens</em> <b>" + fmtNum(w.tokens) + "</b>" +
+    " &nbsp; <em>in</em> " + fmtNum(w.prompt_tokens) +
+    " &nbsp; <em>out</em> " + fmtNum(w.completion_tokens);
 }
 function render() {
   $("key").textContent = mask(state.api_key);
   $("btn-toggle").textContent = keyShown ? "Hide" : "Show";
-  $("live").innerHTML = state.ok
-    ? "<b>live</b> · " + state.keys + " cline keys · :" + state.port
-    : "<span style='color:var(--bad)'>offline</span>";
-  $("effort-now").textContent = "active: " + (state.reasoning_effort || "max") + " · include_reasoning " + (state.include_reasoning ? "on" : "off");
+  const live = !!state.ok;
+  $("live").innerHTML = live
+    ? '<span class="dot on"></span>' + state.keys + " keys · :" + (state.port || 20129) + " · proxy " + (state.proxy_enabled ? "on" : "off")
+    : '<span class="dot off"></span>offline';
+  $("effort-now").textContent = "Default: " + (state.reasoning_effort || "max") +
+    " · include_reasoning " + (state.include_reasoning ? "on" : "off");
+  const pxOn = !!state.proxy_enabled;
+  document.querySelectorAll("#px-toggle button").forEach((b) => {
+    b.classList.toggle("on", (b.dataset.on === "1") === pxOn);
+  });
+  $("px-now").textContent = pxOn
+    ? (state.proxies || 0) + " proxies, round-robin."
+    : "Direct. Pool loaded: " + (state.proxies || 0) + ".";
+  $("px-sample").textContent = (state.proxy_sample || []).join("  ·  ") || "";
   document.querySelectorAll("#effort button").forEach((b) => {
     b.classList.toggle("on", b.dataset.v === (state.reasoning_effort || "max"));
   });
-  $("ep-win").textContent = "http://127.0.0.1:" + state.port + "/v1";
+  const base = originBase();
+  const root = originRoot();
+  $("ep-base").textContent = base;
+  $("ep-chat").textContent = base + "/chat/completions";
+  $("ep-models").textContent = base + "/models";
+  $("ep-health").textContent = root + "/health";
+  const models = state.models || [];
+  const firstModel = (models[0] && models[0].id) || "z-ai/glm-5.3-flash";
   $("snippet").textContent =
-    "base_url: " + originBase() + "\n" +
+    "base_url: " + base + "\n" +
     "Authorization: Bearer " + (state.api_key || "<api_key>") + "\n" +
-    "model: z-ai/glm-5.3-flash";
+    "model: " + firstModel;
   const tb = $("models");
   tb.innerHTML = "";
-  (state.models || []).forEach((m) => {
+  models.forEach((m) => {
     const tr = document.createElement("tr");
     const paid = m.paid;
-    tr.innerHTML = "<td>" + m.id + "</td><td>" + m.root + "</td><td><span class='tag " + (paid ? "paid" : "free") + "'>" + (paid ? "paid" : "free") + "</span></td>";
+    tr.innerHTML = "<td>" + m.id + "</td><td class='muted'>" + m.root + "</td><td><span class='tag " + (paid ? "paid" : "free") + "'>" + (paid ? "paid" : "free") + "</span></td>";
     tb.appendChild(tr);
   });
+  const st = state.stats || {};
+  fillWindow("u24", st["24h"]);
+  fillWindow("u7", st["7d"]);
+  fillWindow("u30", st["30d"]);
+  if (st.since) $("stats-since").textContent = "Tracking since " + fmtTime(st.since) + ". Prompt text is not stored.";
+  const rb = $("recent");
+  rb.innerHTML = "";
+  const rec = st.recent || [];
+  if (!rec.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td class='empty' colspan='6'>No requests yet.</td>";
+    rb.appendChild(tr);
+  } else {
+    rec.forEach((r) => {
+      const tr = document.createElement("tr");
+      const tags = "<span class='tag " + (r.ok ? "ok" : "fail") + "'>" + (r.ok ? "ok" : "fail") + "</span>" +
+        (r.stream ? " <span class='tag sse'>sse</span>" : "");
+      tr.innerHTML = "<td class='muted'>" + fmtTime(r.ts) + "</td><td>" + (r.model || "—") + "</td><td>" + tags +
+        "</td><td class='num'>" + fmtNum(r.prompt_tokens) + "</td><td class='num'>" + fmtNum(r.completion_tokens) +
+        "</td><td class='num'>" + fmtNum(r.tokens) + "</td>";
+      rb.appendChild(tr);
+    });
+  }
 }
 async function load() {
-  const r = await fetch("/api/settings");
+  const r = await fetch("/api/settings", { credentials: "same-origin", cache: "no-store" });
+  if (r.status === 401) { location.replace("/login"); return; }
   state = Object.assign(state, await r.json());
   render();
+}
+async function refreshRecent() {
+  const b = $("btn-refresh");
+  b.disabled = true;
+  try {
+    await load();
+    toast("Updated");
+  } catch (e) {
+    toast("Refresh failed");
+  } finally {
+    b.disabled = false;
+  }
 }
 async function saveEffort(v) {
   const r = await fetch("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     body: JSON.stringify({ reasoning_effort: v }),
   });
+  if (r.status === 401) { location.replace("/login"); return; }
   state = Object.assign(state, await r.json());
   render();
-  toast("effort " + v);
+  toast("Effort " + v);
 }
 $("btn-toggle").onclick = () => { keyShown = !keyShown; render(); };
-$("btn-copy").onclick = async () => {
-  await navigator.clipboard.writeText(state.api_key);
-  toast("api key copied");
-};
-$("btn-snip").onclick = async () => {
-  await navigator.clipboard.writeText($("snippet").textContent);
-  toast("snippet copied");
-};
+$("btn-copy").onclick = () => copyText(state.api_key, "API key copied");
+$("btn-snip").onclick = () => copyText($("snippet").textContent, "Config copied");
+$("btn-ep-base").onclick = () => copyText($("ep-base").textContent, "Base URL copied");
 $("effort").onclick = (e) => {
   const b = e.target.closest("button[data-v]");
   if (b) saveEffort(b.dataset.v);
 };
-load().catch(() => { $("live").innerHTML = "<span style='color:var(--bad)'>failed to load /api/settings</span>"; });
+async function saveProxy(on) {
+  const r = await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({ proxy_enabled: on }),
+  });
+  if (r.status === 401) { location.replace("/login"); return; }
+  state = Object.assign(state, await r.json());
+  render();
+  toast("Proxy " + (on ? "on" : "off"));
+}
+$("px-toggle").onclick = (e) => {
+  const b = e.target.closest("button[data-on]");
+  if (b) saveProxy(b.dataset.on === "1");
+};
+$("btn-logout").onclick = () => { location.href = "/logout"; };
+$("btn-refresh").onclick = () => refreshRecent();
+load().catch(() => { $("live").innerHTML = '<span class="dot off"></span>failed to load'; });
 </script>
 </body>
 </html>

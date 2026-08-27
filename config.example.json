@@ -1,6 +1,7 @@
 {
-  "api_key": "sk-crp-change-me",
+  "api_key": "***",
   "port": 20129,
   "host": "0.0.0.0",
-  "reasoning_effort": "max"
+  "reasoning_effort": "max",
+  "proxy_enabled": false
 }
