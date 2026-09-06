@@ -71,6 +71,7 @@ _rr = 0
 _keys: list[str] = []
 _proxy_key = ""
 _default_effort = "max"
+_model_efforts: dict[str, str] = {}
 _proxy_enabled = False
 _proxies: list[str] = []
 _proxy_rr = 0
@@ -142,10 +143,15 @@ def init_stats_db() -> None:
                  ok INTEGER NOT NULL DEFAULT 0,
                  prompt INTEGER NOT NULL DEFAULT 0,
                  completion INTEGER NOT NULL DEFAULT 0,
-                 total INTEGER NOT NULL DEFAULT 0
+                 total INTEGER NOT NULL DEFAULT 0,
+                 effort TEXT NOT NULL DEFAULT ''
                )"""
         )
         con.execute("CREATE INDEX IF NOT EXISTS hits_ts ON hits(ts)")
+        try:
+            con.execute("ALTER TABLE hits ADD COLUMN effort TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
     finally:
         con.close()
 
@@ -210,6 +216,7 @@ def record_hit(
     prompt: int = 0,
     completion: int = 0,
     total: int = 0,
+    effort: str = "",
 ) -> None:
     if usage_obj is not None:
         prompt, completion, total = extract_usage(usage_obj)
@@ -221,6 +228,7 @@ def record_hit(
         max(0, int(prompt)),
         max(0, int(completion)),
         max(0, int(total)),
+        (effort or "")[:32],
     )
     try:
         _stats_q.put_nowait(item)
@@ -247,7 +255,7 @@ def stats_writer_loop() -> None:
                         break
             if pending:
                 con.executemany(
-                    "INSERT INTO hits(ts,model,stream,ok,prompt,completion,total) VALUES(?,?,?,?,?,?,?)",
+                    "INSERT INTO hits(ts,model,stream,ok,prompt,completion,total,effort) VALUES(?,?,?,?,?,?,?,?)",
                     pending,
                 )
                 pending.clear()
@@ -305,7 +313,7 @@ def stats_payload() -> dict[str, Any]:
             first = con.execute("SELECT MIN(ts) FROM hits").fetchone()[0]
             out["since"] = int(first) if first else None
             rows = con.execute(
-                "SELECT ts, model, stream, ok, prompt, completion, total "
+                "SELECT ts, model, stream, ok, prompt, completion, total, COALESCE(effort, '') "
                 "FROM hits ORDER BY ts DESC LIMIT 25"
             ).fetchall()
             out["recent"] = [
@@ -317,6 +325,7 @@ def stats_payload() -> dict[str, Any]:
                     "prompt_tokens": int(r[4] or 0),
                     "completion_tokens": int(r[5] or 0),
                     "tokens": int(r[6] or 0),
+                    "effort": str(r[7] or ""),
                 }
                 for r in rows
             ]
@@ -612,8 +621,9 @@ def normalize_completion(obj: Any) -> Any:
     return obj
 
 
+VALID_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
 EFFORT_MAP = {
-    "xhigh": "max",
     "extra-high": "max",
     "extra_high": "max",
     "ultra": "max",
@@ -624,18 +634,23 @@ def _norm_effort(val: Any) -> str | None:
     if not isinstance(val, str):
         return None
     v = val.strip().lower()
-    return EFFORT_MAP.get(v, v)
+    if v in EFFORT_MAP:
+        return EFFORT_MAP[v]
+    if v in VALID_EFFORTS:
+        return v
+    return None
 
 
 def prepare_request_body(body: dict) -> dict:
     body = dict(body)
-    body["model"] = resolve_model(body.get("model"))
+    model = resolve_model(body.get("model"))
+    body["model"] = model
     if "include_reasoning" not in body:
         body["include_reasoning"] = True
     # Cline VSCode sets this; keep if client sent, else enable
     if body.get("stream") and "stream_options" not in body:
         body["stream_options"] = {"include_usage": True}
-    # GLM-5.3-flash Cline catalog: effort values low|high|max. xhigh is Hermes-speak → max.
+    # Effort values: none|minimal|low|medium|high|xhigh|max
     effort = None
     r = body.get("reasoning")
     if isinstance(r, dict) and r.get("effort"):
@@ -643,7 +658,7 @@ def prepare_request_body(body: dict) -> dict:
     if effort is None:
         effort = _norm_effort(body.get("reasoning_effort"))
     if not effort:
-        effort = _default_effort or "max"
+        effort = _model_efforts.get(model) or _default_effort or "max"
     body["reasoning"] = {**(r if isinstance(r, dict) else {}), "effort": effort}
     body["reasoning_effort"] = effort
     return body
@@ -677,6 +692,7 @@ def settings_payload() -> dict:
         "port": PORT,
         "keys": len(_keys),
         "reasoning_effort": _default_effort,
+        "model_reasoning_effort": _model_efforts,
         "include_reasoning": True,
         "default_model": DEFAULT_MODEL,
         "models": models,
@@ -689,14 +705,26 @@ def settings_payload() -> dict:
 
 
 def save_config_patch(patch: dict) -> dict:
-    global _default_effort, _proxy_key, _proxy_enabled
+    global _default_effort, _proxy_key, _proxy_enabled, _model_efforts
     cfg = load_or_create_config()
     if "reasoning_effort" in patch:
         effort = _norm_effort(patch.get("reasoning_effort")) or "max"
-        if effort not in ("low", "high", "max"):
+        if effort not in VALID_EFFORTS:
             effort = "max"
         cfg["reasoning_effort"] = effort
         _default_effort = effort
+    if "model_reasoning_effort" in patch and isinstance(patch["model_reasoning_effort"], dict):
+        for m, eff in patch["model_reasoning_effort"].items():
+            norm_eff = _norm_effort(eff)
+            if norm_eff and norm_eff in VALID_EFFORTS:
+                _model_efforts[resolve_model(m)] = norm_eff
+        cfg["model_reasoning_effort"] = _model_efforts
+    if "model" in patch and "effort" in patch:
+        m = resolve_model(patch["model"])
+        norm_eff = _norm_effort(patch["effort"])
+        if norm_eff and norm_eff in VALID_EFFORTS:
+            _model_efforts[m] = norm_eff
+            cfg["model_reasoning_effort"] = _model_efforts
     if "proxy_enabled" in patch:
         _proxy_enabled = bool(patch.get("proxy_enabled"))
         cfg["proxy_enabled"] = _proxy_enabled
@@ -994,7 +1022,8 @@ class Handler(BaseHTTPRequestHandler):
         req_body = prepare_request_body(body)
         stream = bool(req_body.get("stream"))
         model = req_body.get("model")
-        log(f"POST chat model={model} stream={stream} msgs={len(req_body.get('messages') or [])}")
+        eff = req_body.get("reasoning_effort")
+        log(f"POST chat model={model} stream={stream} effort={eff} msgs={len(req_body.get('messages') or [])}")
         if stream:
             self._proxy_stream(req_body)
         else:
@@ -1002,6 +1031,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _proxy_json(self, req_body: dict) -> None:
         data = json.dumps(req_body).encode("utf-8")
+        eff = str(req_body.get("reasoning_effort") or "")
         last_err = "upstream failed"
         last_status = 502
         last_body = b""
@@ -1025,7 +1055,7 @@ class Handler(BaseHTTPRequestHandler):
                     log(f"failover json key={key_tag(key)}{via} status={status} body={raw[:180]!r}")
                     continue
                 log(f"fail json key={key_tag(key)}{via} status={status}")
-                record_hit(str(req_body.get("model") or ""), stream=False, ok=False)
+                record_hit(str(req_body.get("model") or ""), stream=False, ok=False, effort=eff)
                 self._send(status, raw, "application/json")
                 return
             except (URLError, TimeoutError, OSError) as e:
@@ -1039,11 +1069,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             obj = normalize_completion(obj)
             log(f"ok json key={key_tag(key)}{via} status={status}")
-            record_hit(str(req_body.get("model") or ""), stream=False, ok=True, usage_obj=obj)
+            record_hit(str(req_body.get("model") or ""), stream=False, ok=True, usage_obj=obj, effort=eff)
             _, payload, ctype = json_bytes(obj)
             self._send(200, payload, ctype)
             return
-        record_hit(str(req_body.get("model") or ""), stream=False, ok=False)
+        record_hit(str(req_body.get("model") or ""), stream=False, ok=False, effort=eff)
         _, payload, ctype = json_bytes(
             {"error": {"message": last_err, "type": "api_error", "code": last_status, "body": last_body[:300].decode("utf-8", "replace")}}
         )
@@ -1051,6 +1081,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _proxy_stream(self, req_body: dict) -> None:
         data = json.dumps(req_body).encode("utf-8")
+        eff = str(req_body.get("reasoning_effort") or "")
         last_err = "upstream failed"
         last_status = 502
         for _attempt in range(MAX_FAILOVER):
@@ -1070,7 +1101,7 @@ class Handler(BaseHTTPRequestHandler):
                     log(f"failover stream key={key_tag(key)}{via} status={e.code}")
                     continue
                 log(f"fail stream key={key_tag(key)}{via} status={e.code}")
-                record_hit(str(req_body.get("model") or ""), stream=True, ok=False)
+                record_hit(str(req_body.get("model") or ""), stream=True, ok=False, effort=eff)
                 self._send(e.code, raw, e.headers.get("Content-Type") or "application/json")
                 return
             except (URLError, TimeoutError, OSError) as e:
@@ -1084,10 +1115,10 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     obj = normalize_completion(json.loads(raw.decode("utf-8", "replace")))
                 except Exception:
-                    record_hit(str(req_body.get("model") or ""), stream=True, ok=True)
+                    record_hit(str(req_body.get("model") or ""), stream=True, ok=True, effort=eff)
                     self._send(200, raw, "application/json")
                     return
-                self._sse_from_json(obj)
+                self._sse_from_json(obj, effort=eff)
                 return
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -1139,15 +1170,16 @@ class Handler(BaseHTTPRequestHandler):
                 stream=True,
                 ok=not aborted,
                 usage_obj=last_usage,
+                effort=eff,
             )
             return
-        record_hit(str(req_body.get("model") or ""), stream=True, ok=False)
+        record_hit(str(req_body.get("model") or ""), stream=True, ok=False, effort=eff)
         _, payload, ctype = json_bytes(
             {"error": {"message": last_err, "type": "api_error", "code": last_status}}
         )
         self._send(last_status if last_status >= 400 else 502, payload, ctype)
 
-    def _sse_from_json(self, obj: dict) -> None:
+    def _sse_from_json(self, obj: dict, effort: str = "") -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -1183,7 +1215,7 @@ class Handler(BaseHTTPRequestHandler):
         emit({}, finish)
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
-        record_hit(str(obj.get("model") or ""), stream=True, ok=True, usage_obj=obj)
+        record_hit(str(obj.get("model") or ""), stream=True, ok=True, usage_obj=obj, effort=effort)
 
     def _map_sse_line(self, line: bytes) -> bytes | None:
         raw = line.rstrip(b"\r")
@@ -1209,11 +1241,16 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    global _keys, _proxy_key, _default_effort, HOST, PORT, _proxy_enabled, _proxies
+    global _keys, _proxy_key, _default_effort, HOST, PORT, _proxy_enabled, _proxies, _model_efforts
     ROOT.mkdir(parents=True, exist_ok=True)
     cfg = load_or_create_config()
     _proxy_key = cfg["api_key"]
     _default_effort = _norm_effort(cfg.get("reasoning_effort")) or "max"
+    _model_efforts = {}
+    for m, eff in (cfg.get("model_reasoning_effort") or {}).items():
+        ne = _norm_effort(eff)
+        if ne and ne in VALID_EFFORTS:
+            _model_efforts[resolve_model(m)] = ne
     _proxy_enabled = bool(cfg.get("proxy_enabled"))
     _keys = load_cline_keys()
     _proxies = load_egress_proxies()

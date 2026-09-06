@@ -3,416 +3,984 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>CRP</title>
+<title>CRP — Cline Reason Proxy Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0f1115;
-    --surface: #171a21;
-    --surface-2: #1d2129;
-    --ink: #eceff4;
-    --muted: #8d95a3;
-    --faint: #6b7380;
-    --line: #2a303a;
-    --line-2: #343b46;
-    --accent: #5b8def;
-    --accent-soft: #1c2a44;
-    --ok: #3cb88a;
-    --ok-bg: #163227;
-    --bad: #e15b54;
-    --bad-bg: #3a1c1b;
-    --warn: #c9a227;
-    --radius: 10px;
-    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
+    --bg-base: #090b10;
+    --bg-surface: #11151f;
+    --bg-surface-elevated: #161b27;
+    --bg-subtle: #1c2232;
+    --border-subtle: #1f2738;
+    --border-strong: #2a354c;
+    --border-focus: #3b82f6;
+    
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --accent-subtle: rgba(59, 130, 246, 0.12);
+    --accent-border: rgba(59, 130, 246, 0.3);
+    
+    --success: #10b981;
+    --success-subtle: rgba(16, 185, 129, 0.12);
+    --success-border: rgba(16, 185, 129, 0.28);
+    
+    --danger: #ef4444;
+    --danger-subtle: rgba(239, 68, 68, 0.12);
+    
+    --warning: #f59e0b;
+    --warning-subtle: rgba(245, 158, 11, 0.12);
+    
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-full: 9999px;
+    
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+    --shadow-card: 0 4px 20px -2px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border-subtle);
   }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); }
-  body { min-height: 100vh; }
-  a { color: inherit; }
-  .shell { max-width: 1120px; margin: 0 auto; padding: 0 24px 64px; }
-  .bar {
-    display: flex; align-items: center; justify-content: space-between; gap: 16px;
-    height: 56px; border-bottom: 1px solid var(--line); margin: 0 -24px 28px;
-    padding: 0 24px; background: rgba(15,17,21,.92); position: sticky; top: 0; z-index: 10;
-    backdrop-filter: blur(10px);
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 13.5px;
+    line-height: 1.5;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-  .brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-  .brand strong { font-size: 15px; font-weight: 650; letter-spacing: -.02em; }
-  .brand span { color: var(--faint); font-size: 13px; }
-  .bar-right { display: flex; align-items: center; gap: 12px; }
-  .pill {
-    display: inline-flex; align-items: center; gap: 7px;
-    font-size: 12px; color: var(--muted); font-family: var(--mono);
+
+  .container {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 0 24px 60px;
   }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
-  .dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(60,184,138,.18); }
-  .dot.off { background: var(--bad); }
+
+  /* Header Bar */
+  .navbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: rgba(9, 11, 16, 0.85);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border-subtle);
+    margin: 0 -24px 32px;
+    padding: 0 24px;
+  }
+
+  .navbar-inner {
+    max-width: 1240px;
+    margin: 0 auto;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .brand-badge {
+    width: 34px;
+    height: 34px;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 14px;
+    color: #fff;
+    box-shadow: 0 0 16px rgba(37, 99, 235, 0.4);
+  }
+
+  .brand-text h1 {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .brand-text span {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 400;
+  }
+
+  .nav-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-subtle);
+    padding: 6px 14px;
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+  }
+
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+  }
+
+  .status-dot.active {
+    background: var(--success);
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+    animation: pulse 2.5s infinite;
+  }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+    70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+
+  /* Buttons */
   button {
-    font: 500 13px/1 var(--sans); background: var(--surface-2); color: var(--ink);
-    border: 1px solid var(--line-2); padding: 7px 12px; border-radius: 7px; cursor: pointer;
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-strong);
+    background: var(--bg-surface-elevated);
+    color: var(--text-primary);
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
-  button:hover { border-color: #4a5360; background: #232833; }
-  button.primary { background: var(--accent); border-color: transparent; color: #fff; }
-  button.primary:hover { filter: brightness(1.06); }
-  button.ghost { background: transparent; border-color: transparent; color: var(--muted); padding: 7px 10px; }
-  button.ghost:hover { color: var(--ink); background: var(--surface-2); }
-  .usage {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 28px;
+
+  button:hover {
+    background: var(--bg-subtle);
+    border-color: #3b4661;
   }
-  .stat {
-    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
-    padding: 18px 18px 16px;
+
+  button.primary {
+    background: var(--accent);
+    border-color: transparent;
+    color: #fff;
+    font-weight: 600;
   }
-  .stat .k { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
-  .stat .req { font-size: 28px; font-weight: 650; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
-  .stat .tok { margin-top: 10px; font-family: var(--mono); font-size: 13px; color: var(--ink); }
-  .stat .tok b { font-weight: 650; }
-  .stat .tok em { font-style: normal; color: var(--faint); margin-right: 4px; }
-  .stat .okline { margin-top: 8px; font-size: 12px; color: var(--muted); }
-  .layout { display: grid; grid-template-columns: 340px 1fr; gap: 12px; }
-  .card {
-    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
-    padding: 18px; min-width: 0;
+
+  button.primary:hover {
+    background: var(--accent-hover);
+    box-shadow: 0 0 12px rgba(59, 130, 246, 0.35);
   }
-  .card h2 {
-    margin: 0; font-size: 13px; font-weight: 600; color: var(--ink);
+
+  button.ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-secondary);
   }
-  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; }
-  .card-head h2 { margin: 0; }
-  button.tiny { padding: 5px 9px; font-size: 12px; color: var(--muted); }
-  .wide { grid-column: 1 / -1; }
-  .hint { color: var(--muted); font-size: 12.5px; margin: 10px 0 0; }
-  .keyrow {
-    display: flex; gap: 8px; align-items: center; background: var(--bg);
-    border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+
+  button.ghost:hover {
+    background: var(--bg-surface-elevated);
+    color: var(--text-primary);
   }
-  .keyrow code { flex: 1; font-family: var(--mono); font-size: 12px; word-break: break-all; color: var(--ink); }
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .seg button {
-    border: 0; border-right: 1px solid var(--line); border-radius: 0; background: transparent;
-    padding: 8px 14px; color: var(--muted);
+
+  /* Usage Cards - Large & High Impact */
+  .section-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
-  .seg button:last-child { border-right: 0; }
-  .seg button:hover { background: var(--surface-2); color: var(--ink); }
-  .seg button.on { background: var(--accent-soft); color: var(--ink); }
-  table { width: 100%; border-collapse: collapse; }
+
+  .usage-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .usage-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 22px 24px 20px;
+    box-shadow: var(--shadow-card);
+    transition: border-color 0.2s ease;
+  }
+
+  .usage-card:hover {
+    border-color: var(--border-strong);
+  }
+
+  .usage-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+  }
+
+  .usage-period {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .usage-badge {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    background: var(--success-subtle);
+    color: var(--success);
+    border: 1px solid var(--success-border);
+  }
+
+  .usage-badge.warn {
+    background: var(--warning-subtle);
+    color: var(--warning);
+    border-color: rgba(245, 158, 11, 0.3);
+  }
+
+  .usage-metric {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  .usage-metric small {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+
+  .usage-progress {
+    width: 100%;
+    height: 4px;
+    background: var(--bg-subtle);
+    border-radius: var(--radius-full);
+    margin: 14px 0;
+    overflow: hidden;
+  }
+
+  .usage-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #10b981, #059669);
+    border-radius: var(--radius-full);
+  }
+
+  .usage-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .token-stat {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-secondary);
+  }
+
+  .token-stat strong {
+    color: var(--text-primary);
+  }
+
+  /* Grid Layout for Functional Cards */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 32px;
+  }
+
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 32px;
+  }
+
+  .full-width {
+    margin-bottom: 32px;
+  }
+
+  .panel {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    box-shadow: var(--shadow-card);
+  }
+
+  .panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+  }
+
+  .panel-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .panel-desc {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  /* Key and Input Boxes */
+  .field-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    gap: 12px;
+  }
+
+  .field-box code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    word-break: break-all;
+  }
+
+  /* Segmented Controls */
+  .segmented-control {
+    display: inline-flex;
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    padding: 3px;
+    border-radius: var(--radius-md);
+    gap: 2px;
+  }
+
+  .segmented-control button {
+    border: 0;
+    background: transparent;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .segmented-control button:hover {
+    color: var(--text-primary);
+    background: var(--bg-surface-elevated);
+  }
+
+  .segmented-control button.active {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .segmented-control.sm button {
+    padding: 4px 9px;
+    font-size: 11px;
+  }
+
+  /* Model Catalog Table */
+  .table-container {
+    overflow-x: auto;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface-elevated);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    text-align: left;
+  }
+
   th {
-    text-align: left; color: var(--faint); font-size: 11px; font-weight: 600;
-    padding: 0 12px 8px 0; border-bottom: 1px solid var(--line);
+    background: var(--bg-surface);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-subtle);
   }
+
   td {
-    padding: 9px 12px 9px 0; border-bottom: 1px solid var(--line);
-    font-family: var(--mono); font-size: 12px; vertical-align: middle;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    vertical-align: middle;
   }
-  tr:last-child td { border-bottom: 0; }
-  tbody tr:hover td { background: rgba(255,255,255,.015); }
-  .num { text-align: right; font-variant-numeric: tabular-nums; }
-  th.num { text-align: right; }
-  .muted { color: var(--muted); }
-  .tag {
-    display: inline-flex; align-items: center; font: 600 10px/1 var(--sans);
-    letter-spacing: .04em; text-transform: uppercase; padding: 3px 7px; border-radius: 999px;
+
+  tr:last-child td {
+    border-bottom: 0;
   }
-  .tag.ok { color: var(--ok); background: var(--ok-bg); }
-  .tag.fail { color: var(--bad); background: var(--bad-bg); }
-  .tag.sse { color: var(--accent); background: var(--accent-soft); }
-  .tag.free { color: var(--ok); background: var(--ok-bg); }
-  .tag.paid { color: var(--warn); background: #2e2714; }
-  .ep-list { display: grid; gap: 8px; }
-  .ep-item { display: grid; grid-template-columns: 72px 1fr auto; gap: 10px; align-items: center; }
-  .ep-item .lab { font-size: 12px; color: var(--muted); }
-  .ep-item code {
-    font-family: var(--mono); font-size: 12px; color: var(--ink);
-    background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
-    padding: 8px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+
+  tbody tr:hover {
+    background: rgba(255, 255, 255, 0.018);
   }
-  .ep-item button { padding: 6px 10px; font-size: 12px; }
-  .px-sample { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-top: 10px; line-height: 1.65; word-break: break-all; }
-  .empty { color: var(--muted); font-family: var(--sans) !important; padding: 16px 0 !important; }
+
+  .model-name {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: var(--radius-full);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .badge-success { background: var(--success-subtle); color: var(--success); border: 1px solid var(--success-border); }
+  .badge-danger { background: var(--danger-subtle); color: var(--danger); }
+  .badge-accent { background: var(--accent-subtle); color: var(--accent); border: 1px solid var(--accent-border); }
+  .badge-muted { background: var(--bg-subtle); color: var(--text-secondary); border: 1px solid var(--border-subtle); }
+
+  /* Endpoints List */
+  .endpoint-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    margin-bottom: 8px;
+    gap: 12px;
+  }
+
+  .endpoint-label {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    min-width: 60px;
+  }
+
+  .endpoint-url {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Toast Notification */
   .toast {
-    position: fixed; bottom: 20px; right: 20px; background: var(--surface-2);
-    border: 1px solid var(--line-2); color: var(--ink); padding: 10px 14px;
-    font-size: 13px; border-radius: 8px; opacity: 0; pointer-events: none; transition: opacity .18s; z-index: 20;
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-strong);
+    color: var(--text-primary);
+    padding: 10px 18px;
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
-  .toast.show { opacity: 1; }
-  @media (max-width: 900px) {
-    .usage, .layout { grid-template-columns: 1fr 1fr; }
-    .wide { grid-column: auto; }
+
+  .toast.show {
+    opacity: 1;
+    transform: translateY(0);
   }
-  @media (max-width: 640px) {
-    .shell { padding: 0 14px 48px; }
-    .bar { margin: 0 -14px 20px; padding: 0 14px; }
-    .usage, .layout { grid-template-columns: 1fr; }
-    .ep-item { grid-template-columns: 1fr; }
+
+  @media (max-width: 1024px) {
+    .usage-grid { grid-template-columns: 1fr; }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
-  <div class="shell">
-    <div class="bar">
+
+  <!-- Top Navbar -->
+  <header class="navbar">
+    <div class="navbar-inner">
       <div class="brand">
-        <strong>CRP</strong>
-        <span>Cline reason proxy</span>
+        <div class="brand-badge">C</div>
+        <div class="brand-text">
+          <h1>Cline Reason Proxy <span style="font-size:11px; background:var(--accent-subtle); color:var(--accent); padding:2px 6px; border-radius:4px; border:1px solid var(--accent-border);">v1.2</span></h1>
+          <span>High-Performance AI Reasoning Gateway</span>
+        </div>
       </div>
-      <div class="bar-right">
-        <div class="pill" id="live"><span class="dot"></span> checking</div>
-        <button type="button" class="ghost" id="btn-logout">Sign out</button>
+      <div class="nav-status">
+        <div class="status-pill" id="live-indicator">
+          <span class="status-dot active"></span>
+          <span id="nav-info">Connecting…</span>
+        </div>
+        <button type="button" class="ghost" id="btn-logout">Sign Out</button>
       </div>
     </div>
+  </header>
 
-    <div class="usage">
-      <div class="stat">
-        <div class="k">Last 24 hours</div>
-        <div class="req" id="u24-req">—</div>
-        <div class="tok" id="u24-tok"><em>tokens</em> —</div>
-        <div class="okline" id="u24-ok"></div>
+  <main class="container">
+    
+    <!-- Section: High-Impact Usage Metrics -->
+    <div class="section-title">Traffic & Usage Analytics</div>
+    <div class="usage-grid">
+      
+      <!-- 24h Card -->
+      <div class="usage-card">
+        <div class="usage-header">
+          <span class="usage-period">Last 24 Hours</span>
+          <span class="usage-badge" id="u24-rate">100% OK</span>
+        </div>
+        <div class="usage-metric" id="u24-req">0 <small>reqs</small></div>
+        <div class="usage-progress">
+          <div class="usage-progress-bar" id="u24-bar" style="width: 100%;"></div>
+        </div>
+        <div class="usage-footer">
+          <span class="token-stat">Tokens: <strong id="u24-tokens">0</strong></span>
+          <span style="font-size:11.5px; color:var(--text-muted);" id="u24-split">In: 0 · Out: 0</span>
+        </div>
       </div>
-      <div class="stat">
-        <div class="k">Last 7 days</div>
-        <div class="req" id="u7-req">—</div>
-        <div class="tok" id="u7-tok"><em>tokens</em> —</div>
-        <div class="okline" id="u7-ok"></div>
+
+      <!-- 7d Card -->
+      <div class="usage-card">
+        <div class="usage-header">
+          <span class="usage-period">Last 7 Days</span>
+          <span class="usage-badge" id="u7-rate">100% OK</span>
+        </div>
+        <div class="usage-metric" id="u7-req">0 <small>reqs</small></div>
+        <div class="usage-progress">
+          <div class="usage-progress-bar" id="u7-bar" style="width: 100%;"></div>
+        </div>
+        <div class="usage-footer">
+          <span class="token-stat">Tokens: <strong id="u7-tokens">0</strong></span>
+          <span style="font-size:11.5px; color:var(--text-muted);" id="u7-split">In: 0 · Out: 0</span>
+        </div>
       </div>
-      <div class="stat">
-        <div class="k">Last 30 days</div>
-        <div class="req" id="u30-req">—</div>
-        <div class="tok" id="u30-tok"><em>tokens</em> —</div>
-        <div class="okline" id="u30-ok"></div>
+
+      <!-- 30d Card -->
+      <div class="usage-card">
+        <div class="usage-header">
+          <span class="usage-period">Last 30 Days</span>
+          <span class="usage-badge" id="u30-rate">100% OK</span>
+        </div>
+        <div class="usage-metric" id="u30-req">0 <small>reqs</small></div>
+        <div class="usage-progress">
+          <div class="usage-progress-bar" id="u30-bar" style="width: 100%;"></div>
+        </div>
+        <div class="usage-footer">
+          <span class="token-stat">Tokens: <strong id="u30-tokens">0</strong></span>
+          <span style="font-size:11.5px; color:var(--text-muted);" id="u30-split">In: 0 · Out: 0</span>
+        </div>
       </div>
+
     </div>
 
-    <div class="layout">
-      <div class="card">
-        <h2>API key</h2>
-        <div class="keyrow"><code id="key">loading…</code></div>
-        <div class="actions">
-          <button type="button" id="btn-toggle">Show</button>
-          <button type="button" class="primary" id="btn-copy">Copy</button>
+    <!-- Section: Model Routing & Reasoning Control -->
+    <div class="section-title">Model Catalog & Reasoning Controls</div>
+    <div class="panel full-width">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Active Models & Per-Model Reasoning Effort</div>
+          <div class="panel-desc">Configure independent reasoning levels per model. Click tier to update instantly.</div>
         </div>
-        <p class="hint">Bearer token for /v1. This page requires a signed-in session.</p>
-      </div>
-
-      <div class="card">
-        <h2>Client</h2>
-        <div class="keyrow"><code id="snippet"></code></div>
-        <div class="actions">
-          <button type="button" class="primary" id="btn-snip">Copy config</button>
-        </div>
-        <p class="hint">OpenAI-compatible base URL and key.</p>
-      </div>
-
-      <div class="card">
-        <h2>Reasoning</h2>
-        <div class="seg" id="effort">
-          <button type="button" data-v="low">Low</button>
-          <button type="button" data-v="high">High</button>
-          <button type="button" data-v="max">Max</button>
-        </div>
-        <p class="hint" id="effort-now"></p>
-        <p class="hint">Applied on every request. Hermes xhigh maps to max.</p>
-      </div>
-
-      <div class="card">
-        <h2>Egress</h2>
-        <div class="seg" id="px-toggle">
-          <button type="button" data-on="0">Off</button>
-          <button type="button" data-on="1">On</button>
-        </div>
-        <p class="hint" id="px-now"></p>
-        <p class="hint">On uses one HTTP proxy per attempt. Off goes direct to api.cline.bot.</p>
-        <div class="px-sample" id="px-sample"></div>
-      </div>
-
-      <div class="card wide">
-        <h2>Endpoints</h2>
-        <div class="ep-list">
-          <div class="ep-item">
-            <div class="lab">Base</div>
-            <code id="ep-base"></code>
-            <button type="button" id="btn-ep-base">Copy</button>
-          </div>
-          <div class="ep-item">
-            <div class="lab">Chat</div>
-            <code id="ep-chat"></code>
-            <span></span>
-          </div>
-          <div class="ep-item">
-            <div class="lab">Models</div>
-            <code id="ep-models"></code>
-            <span></span>
-          </div>
-          <div class="ep-item">
-            <div class="lab">Health</div>
-            <code id="ep-health"></code>
-            <span></span>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span style="font-size:12px; color:var(--text-muted);">Global Fallback:</span>
+          <div class="segmented-control sm" id="global-effort-seg">
+            <button type="button" data-v="low">Low</button>
+            <button type="button" data-v="medium">Med</button>
+            <button type="button" data-v="high">High</button>
+            <button type="button" data-v="xhigh">XHigh</button>
+            <button type="button" data-v="max">Max</button>
           </div>
         </div>
       </div>
 
-      <div class="card wide">
-        <div class="card-head">
-          <h2>Recent requests</h2>
-          <button type="button" class="tiny" id="btn-refresh">Refresh</button>
-        </div>
+      <div class="table-container">
         <table>
           <thead>
             <tr>
-              <th>Time</th>
-              <th>Model</th>
-              <th></th>
-              <th class="num">Prompt</th>
-              <th class="num">Out</th>
-              <th class="num">Total</th>
+              <th>Model Identifier</th>
+              <th>Upstream Route</th>
+              <th>Status</th>
+              <th style="text-align:right;">Default Reasoning Effort</th>
             </tr>
           </thead>
-          <tbody id="recent"></tbody>
+          <tbody id="model-rows">
+            <!-- Dynamic Injection -->
+          </tbody>
         </table>
-        <p class="hint" id="stats-since">Counts start when this proxy version is running. Prompt text is not stored.</p>
-      </div>
-
-      <div class="card wide">
-        <h2>Models</h2>
-        <table>
-          <thead><tr><th>ID</th><th>Upstream</th><th></th></tr></thead>
-          <tbody id="models"></tbody>
-        </table>
-        <p class="hint">Catalog served by this proxy. Saved aliases still work.</p>
       </div>
     </div>
-  </div>
-  <div class="toast" id="toast">Copied</div>
+
+    <!-- Section: Setup & Integration Config -->
+    <div class="grid-2">
+      
+      <!-- API Access & Config -->
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Authentication & Integration</div>
+            <div class="panel-desc">Bearer token authentication for OpenAI-compatible clients.</div>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:6px;">API Key (Bearer Token)</div>
+          <div class="field-box">
+            <code id="key-display">••••••••••••••••••••••••</code>
+            <div style="display:flex; gap:6px;">
+              <button type="button" id="btn-toggle-key">Show</button>
+              <button type="button" class="primary" id="btn-copy-key">Copy</button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:6px;">Client Quick Setup</div>
+          <div class="field-box" style="align-items: flex-start; padding: 12px;">
+            <code id="client-snippet" style="white-space: pre-wrap; line-height: 1.6;">Loading config…</code>
+            <button type="button" id="btn-copy-snippet" style="align-self: flex-start;">Copy</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Egress Proxy & Endpoints -->
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Network & Egress Routing</div>
+            <div class="panel-desc">Proxy rotation and system network endpoints.</div>
+          </div>
+          <div class="segmented-control sm" id="egress-seg">
+            <button type="button" data-on="0">Direct</button>
+            <button type="button" data-on="1">Proxy Pool</button>
+          </div>
+        </div>
+
+        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 14px;" id="egress-info">
+          Evaluating egress pool status…
+        </div>
+
+        <div class="endpoint-list">
+          <div class="endpoint-item">
+            <span class="endpoint-label">Base URL</span>
+            <span class="endpoint-url" id="ep-base"></span>
+            <button type="button" id="btn-copy-base">Copy</button>
+          </div>
+          <div class="endpoint-item">
+            <span class="endpoint-label">Chat</span>
+            <span class="endpoint-url" id="ep-chat"></span>
+            <span class="badge badge-muted">POST</span>
+          </div>
+          <div class="endpoint-item">
+            <span class="endpoint-label">Models</span>
+            <span class="endpoint-url" id="ep-models"></span>
+            <span class="badge badge-muted">GET</span>
+          </div>
+          <div class="endpoint-item">
+            <span class="endpoint-label">Health</span>
+            <span class="endpoint-url" id="ep-health"></span>
+            <span class="badge badge-success">200 OK</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Section: Live Stream Log & Traffic Monitor -->
+    <div class="panel full-width">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Recent Requests & Live Traffic</div>
+          <div class="panel-desc" id="stats-since">Monitoring stream invocations and token usage.</div>
+        </div>
+        <button type="button" id="btn-refresh" class="primary" style="padding: 7px 14px;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          Refresh Feed
+        </button>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Target Model</th>
+              <th>Reasoning</th>
+              <th>Status</th>
+              <th style="text-align:right;">Prompt In</th>
+              <th style="text-align:right;">Tokens Out</th>
+              <th style="text-align:right;">Total Tokens</th>
+            </tr>
+          </thead>
+          <tbody id="recent-rows">
+            <!-- Dynamic Injection -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <div class="toast" id="toast-notify">Notification</div>
+
 <script>
 const $ = (id) => document.getElementById(id);
-let state = { api_key: "", reasoning_effort: "max", host: "0.0.0.0", port: 20129, keys: 0, models: [], include_reasoning: true, proxy_enabled: false, proxies: 0, proxy_sample: [], stats: { "24h": {}, "7d": {}, "30d": {}, recent: [] } };
-let keyShown = false;
+let state = {
+  api_key: "",
+  reasoning_effort: "max",
+  model_reasoning_effort: {},
+  host: "0.0.0.0",
+  port: 20129,
+  keys: 0,
+  models: [],
+  proxy_enabled: false,
+  proxies: 0,
+  proxy_sample: [],
+  stats: { "24h": {}, "7d": {}, "30d": {}, recent: [] }
+};
+let keyVisible = false;
 
-function toast(t) {
-  const el = $("toast");
-  el.textContent = t;
+function toast(msg) {
+  const el = $("toast-notify");
+  el.textContent = msg;
   el.classList.add("show");
-  setTimeout(() => el.classList.remove("show"), 1200);
+  setTimeout(() => el.classList.remove("show"), 1500);
 }
-function mask(k) {
+
+function maskKey(k) {
   if (!k) return "—";
-  if (keyShown) return k;
-  if (k.length < 12) return "•".repeat(k.length);
-  return k.slice(0, 7) + "…" + k.slice(-4);
+  if (keyVisible) return k;
+  return k.slice(0, 8) + "••••••••••••••••" + k.slice(-4);
 }
+
 function originRoot() {
   const host = location.hostname;
   const port = location.port || state.port;
   const needsPort = !(location.protocol === "https:" && port === "443") && !(location.protocol === "http:" && (port === "80" || port === ""));
   return location.protocol + "//" + host + (needsPort ? ":" + port : "");
 }
+
 function originBase() { return originRoot() + "/v1"; }
-function copyText(t, label) {
-  return navigator.clipboard.writeText(t).then(() => toast(label || "Copied"));
+
+function copy(text, label) {
+  navigator.clipboard.writeText(text).then(() => toast(label || "Copied to clipboard"));
 }
+
 function fmtNum(n) {
   n = Number(n || 0);
-  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
-  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
-  if (n >= 1e4) return (n / 1e3).toFixed(n >= 1e5 ? 0 : 1).replace(/\.0$/, "") + "k";
-  return String(n);
+  if (n >= 1e9) return (n / 1e9).toFixed(2).replace(/\.00$/, "") + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(2).replace(/\.00$/, "") + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "k";
+  return n.toLocaleString();
 }
+
 function fmtTime(ts) {
   if (!ts) return "—";
   const d = new Date(ts * 1000);
-  const p = (n) => String(n).padStart(2, "0");
-  return p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
-function fillWindow(prefix, w) {
-  w = w || {};
-  $(prefix + "-req").textContent = fmtNum(w.requests);
-  $(prefix + "-ok").textContent = fmtNum(w.ok || 0) + " ok · " + fmtNum((w.requests || 0) - (w.ok || 0)) + " fail";
-  $(prefix + "-tok").innerHTML = "<em>tokens</em> <b>" + fmtNum(w.tokens) + "</b>" +
-    " &nbsp; <em>in</em> " + fmtNum(w.prompt_tokens) +
-    " &nbsp; <em>out</em> " + fmtNum(w.completion_tokens);
+
+function updateStatCard(prefix, data) {
+  data = data || {};
+  const reqs = data.requests || 0;
+  const ok = data.ok || 0;
+  const rate = reqs > 0 ? ((ok / reqs) * 100).toFixed(1) : "100.0";
+  
+  $(prefix + "-req").innerHTML = fmtNum(reqs) + " <small>reqs</small>";
+  $(prefix + "-tokens").textContent = fmtNum(data.tokens);
+  $(prefix + "-split").textContent = `In: ${fmtNum(data.prompt_tokens)} · Out: ${fmtNum(data.completion_tokens)}`;
+  
+  const badge = $(prefix + "-rate");
+  badge.textContent = `${rate}% OK (${fmtNum(ok)}/${fmtNum(reqs)})`;
+  badge.className = "usage-badge" + (parseFloat(rate) < 95 ? " warn" : "");
+  
+  const bar = $(prefix + "-bar");
+  bar.style.width = rate + "%";
+  bar.style.background = parseFloat(rate) < 95 ? "linear-gradient(90deg, #f59e0b, #d97706)" : "linear-gradient(90deg, #10b981, #059669)";
 }
+
 function render() {
-  $("key").textContent = mask(state.api_key);
-  $("btn-toggle").textContent = keyShown ? "Hide" : "Show";
-  const live = !!state.ok;
-  $("live").innerHTML = live
-    ? '<span class="dot on"></span>' + state.keys + " keys · :" + (state.port || 20129) + " · proxy " + (state.proxy_enabled ? "on" : "off")
-    : '<span class="dot off"></span>offline';
-  $("effort-now").textContent = "Default: " + (state.reasoning_effort || "max") +
-    " · include_reasoning " + (state.include_reasoning ? "on" : "off");
-  const pxOn = !!state.proxy_enabled;
-  document.querySelectorAll("#px-toggle button").forEach((b) => {
-    b.classList.toggle("on", (b.dataset.on === "1") === pxOn);
-  });
-  $("px-now").textContent = pxOn
-    ? (state.proxies || 0) + " proxies, round-robin."
-    : "Direct. Pool loaded: " + (state.proxies || 0) + ".";
-  $("px-sample").textContent = (state.proxy_sample || []).join("  ·  ") || "";
-  document.querySelectorAll("#effort button").forEach((b) => {
-    b.classList.toggle("on", b.dataset.v === (state.reasoning_effort || "max"));
-  });
+  // Navbar state
+  $("nav-info").textContent = `${state.keys} Cline Keys Active · Port ${state.port || 20129}`;
+  
+  // Usage Cards
+  const st = state.stats || {};
+  updateStatCard("u24", st["24h"]);
+  updateStatCard("u7", st["7d"]);
+  updateStatCard("u30", st["30d"]);
+  
+  // API Key & Snippet
+  $("key-display").textContent = maskKey(state.api_key);
+  $("btn-toggle-key").textContent = keyVisible ? "Hide" : "Show";
+  
   const base = originBase();
   const root = originRoot();
+  const firstModel = (state.models && state.models[0] && state.models[0].id) || "z-ai/glm-5.3-flash";
+  
+  $("client-snippet").textContent = 
+`baseURL: "${base}"
+apiKey:  "${state.api_key || 'sk-crp-...'}"
+model:   "${firstModel}"`;
+
+  // Endpoints
   $("ep-base").textContent = base;
   $("ep-chat").textContent = base + "/chat/completions";
   $("ep-models").textContent = base + "/models";
   $("ep-health").textContent = root + "/health";
-  const models = state.models || [];
-  const firstModel = (models[0] && models[0].id) || "z-ai/glm-5.3-flash";
-  $("snippet").textContent =
-    "base_url: " + base + "\n" +
-    "Authorization: Bearer " + (state.api_key || "<api_key>") + "\n" +
-    "model: " + firstModel;
-  const tb = $("models");
-  tb.innerHTML = "";
-  models.forEach((m) => {
-    const tr = document.createElement("tr");
-    const paid = m.paid;
-    tr.innerHTML = "<td>" + m.id + "</td><td class='muted'>" + m.root + "</td><td><span class='tag " + (paid ? "paid" : "free") + "'>" + (paid ? "paid" : "free") + "</span></td>";
-    tb.appendChild(tr);
+
+  // Egress Toggle
+  const pxOn = !!state.proxy_enabled;
+  document.querySelectorAll("#egress-seg button").forEach((b) => {
+    b.classList.toggle("active", (b.dataset.on === "1") === pxOn);
   });
-  const st = state.stats || {};
-  fillWindow("u24", st["24h"]);
-  fillWindow("u7", st["7d"]);
-  fillWindow("u30", st["30d"]);
-  if (st.since) $("stats-since").textContent = "Tracking since " + fmtTime(st.since) + ". Prompt text is not stored.";
-  const rb = $("recent");
-  rb.innerHTML = "";
-  const rec = st.recent || [];
-  if (!rec.length) {
+  $("egress-info").innerHTML = pxOn 
+    ? `<span style="color:var(--success)">● Proxy Rotation Active</span> — ${state.proxies || 0} egress nodes in round-robin pool.`
+    : `<span style="color:var(--text-muted)">○ Direct Routing Active</span> — ${state.proxies || 0} nodes loaded in pool.`;
+
+  // Global Effort Segmented
+  document.querySelectorAll("#global-effort-seg button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.v === (state.reasoning_effort || "max"));
+  });
+
+  // Models Table
+  const modelEfforts = state.model_reasoning_effort || {};
+  const modelRows = $("model-rows");
+  modelRows.innerHTML = "";
+  const tiers = ["low", "medium", "high", "xhigh", "max"];
+
+  (state.models || []).forEach((m) => {
     const tr = document.createElement("tr");
-    tr.innerHTML = "<td class='empty' colspan='6'>No requests yet.</td>";
-    rb.appendChild(tr);
+    const isPaid = m.paid;
+    const curEff = modelEfforts[m.id] || state.reasoning_effort || "max";
+
+    const segButtons = tiers.map((t) => {
+      const active = (curEff === t) ? " active" : "";
+      const label = t === "medium" ? "Med" : (t === "xhigh" ? "XHigh" : t.charAt(0).toUpperCase() + t.slice(1));
+      return `<button type="button" class="${active}" data-m="${m.id}" data-v="${t}">${label}</button>`;
+    }).join("");
+
+    tr.innerHTML = `
+      <td>
+        <div class="model-name">
+          <span>${m.id}</span>
+          <span class="badge ${isPaid ? 'badge-danger' : 'badge-success'}">${isPaid ? 'Paid' : 'Free / Active'}</span>
+        </div>
+      </td>
+      <td style="font-family:var(--font-mono); color:var(--text-muted); font-size:12px;">${m.root || m.id}</td>
+      <td><span class="badge badge-accent">Reasoning Ready</span></td>
+      <td style="text-align:right;">
+        <div class="segmented-control sm">${segButtons}</div>
+      </td>
+    `;
+    modelRows.appendChild(tr);
+  });
+
+  // Recent Traffic Rows
+  const recentRows = $("recent-rows");
+  recentRows.innerHTML = "";
+  const rec = st.recent || [];
+
+  if (!rec.length) {
+    recentRows.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">No request traffic logged yet.</td></tr>`;
   } else {
     rec.forEach((r) => {
       const tr = document.createElement("tr");
-      const tags = "<span class='tag " + (r.ok ? "ok" : "fail") + "'>" + (r.ok ? "ok" : "fail") + "</span>" +
-        (r.stream ? " <span class='tag sse'>sse</span>" : "");
-      tr.innerHTML = "<td class='muted'>" + fmtTime(r.ts) + "</td><td>" + (r.model || "—") + "</td><td>" + tags +
-        "</td><td class='num'>" + fmtNum(r.prompt_tokens) + "</td><td class='num'>" + fmtNum(r.completion_tokens) +
-        "</td><td class='num'>" + fmtNum(r.tokens) + "</td>";
-      rb.appendChild(tr);
+      const okBadge = r.ok 
+        ? `<span class="badge badge-success">200 OK</span>` 
+        : `<span class="badge badge-danger">Failed</span>`;
+      const sseBadge = r.stream ? ` <span class="badge badge-accent">Stream</span>` : "";
+      const eff = r.effort ? r.effort.toUpperCase() : "AUTO";
+      const effBadge = `<span class="badge ${r.effort ? 'badge-accent' : 'badge-muted'}" style="font-size:10px;">${eff}</span>`;
+
+      tr.innerHTML = `
+        <td style="font-family:var(--font-mono); color:var(--text-muted); font-size:11.5px;">${fmtTime(r.ts)}</td>
+        <td style="font-family:var(--font-mono); font-weight:500;">${r.model || "—"}</td>
+        <td>${effBadge}</td>
+        <td>${okBadge}${sseBadge}</td>
+        <td style="text-align:right; font-family:var(--font-mono);">${fmtNum(r.prompt_tokens)}</td>
+        <td style="text-align:right; font-family:var(--font-mono);">${fmtNum(r.completion_tokens)}</td>
+        <td style="text-align:right; font-family:var(--font-mono); font-weight:600;">${fmtNum(r.tokens)}</td>
+      `;
+      recentRows.appendChild(tr);
     });
   }
+
+  if (st.since) {
+    $("stats-since").textContent = `Tracking real-time stream invocations since ${fmtTime(st.since)}.`;
+  }
 }
+
 async function load() {
   const r = await fetch("/api/settings", { credentials: "same-origin", cache: "no-store" });
   if (r.status === 401) { location.replace("/login"); return; }
   state = Object.assign(state, await r.json());
   render();
 }
-async function refreshRecent() {
-  const b = $("btn-refresh");
-  b.disabled = true;
-  try {
-    await load();
-    toast("Updated");
-  } catch (e) {
-    toast("Refresh failed");
-  } finally {
-    b.disabled = false;
-  }
-}
-async function saveEffort(v) {
+
+async function saveGlobalEffort(v) {
   const r = await fetch("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -422,16 +990,22 @@ async function saveEffort(v) {
   if (r.status === 401) { location.replace("/login"); return; }
   state = Object.assign(state, await r.json());
   render();
-  toast("Effort " + v);
+  toast(`Global default reasoning set to ${v}`);
 }
-$("btn-toggle").onclick = () => { keyShown = !keyShown; render(); };
-$("btn-copy").onclick = () => copyText(state.api_key, "API key copied");
-$("btn-snip").onclick = () => copyText($("snippet").textContent, "Config copied");
-$("btn-ep-base").onclick = () => copyText($("ep-base").textContent, "Base URL copied");
-$("effort").onclick = (e) => {
-  const b = e.target.closest("button[data-v]");
-  if (b) saveEffort(b.dataset.v);
-};
+
+async function saveModelEffort(m, v) {
+  const r = await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({ model: m, effort: v }),
+  });
+  if (r.status === 401) { location.replace("/login"); return; }
+  state = Object.assign(state, await r.json());
+  render();
+  toast(`${m} → ${v.toUpperCase()}`);
+}
+
 async function saveProxy(on) {
   const r = await fetch("/api/settings", {
     method: "POST",
@@ -442,15 +1016,48 @@ async function saveProxy(on) {
   if (r.status === 401) { location.replace("/login"); return; }
   state = Object.assign(state, await r.json());
   render();
-  toast("Proxy " + (on ? "on" : "off"));
+  toast(`Egress proxy pool ${on ? "Enabled" : "Disabled"}`);
 }
-$("px-toggle").onclick = (e) => {
+
+// Event Bindings
+$("btn-toggle-key").onclick = () => { keyVisible = !keyVisible; render(); };
+$("btn-copy-key").onclick = () => copy(state.api_key, "API Key copied");
+$("btn-copy-snippet").onclick = () => copy($("client-snippet").textContent, "Configuration copied");
+$("btn-copy-base").onclick = () => copy($("ep-base").textContent, "Base URL copied");
+
+$("global-effort-seg").onclick = (e) => {
+  const b = e.target.closest("button[data-v]");
+  if (b) saveGlobalEffort(b.dataset.v);
+};
+
+$("model-rows").onclick = (e) => {
+  const b = e.target.closest("button[data-m][data-v]");
+  if (b) saveModelEffort(b.dataset.m, b.dataset.v);
+};
+
+$("egress-seg").onclick = (e) => {
   const b = e.target.closest("button[data-on]");
   if (b) saveProxy(b.dataset.on === "1");
 };
+
 $("btn-logout").onclick = () => { location.href = "/logout"; };
-$("btn-refresh").onclick = () => refreshRecent();
-load().catch(() => { $("live").innerHTML = '<span class="dot off"></span>failed to load'; });
+
+$("btn-refresh").onclick = async () => {
+  const b = $("btn-refresh");
+  b.disabled = true;
+  try {
+    await load();
+    toast("Feed updated");
+  } catch (err) {
+    toast("Update failed");
+  } finally {
+    b.disabled = false;
+  }
+};
+
+load().catch(() => {
+  $("live-indicator").innerHTML = '<span class="status-dot" style="background:var(--danger)"></span> Disconnected';
+});
 </script>
 </body>
 </html>
