@@ -3,9 +3,19 @@
   "port": 20129,
   "host": "0.0.0.0",
   "reasoning_effort": "max",
+  "proxy_enabled": false,
+  "public_models": [
+    "deepseek/deepseek-v4-flash",
+    "cline-free/deepseek-v4.1-flash",
+    "cline-free/kimi-k3",
+    "cline-free/mimo-v2.6-flash",
+    "stealth/space-bunny-alpha"
+  ],
   "model_reasoning_effort": {
-    "z-ai/glm-5.3-flash": "xhigh",
-    "deepseek/deepseek-v4-flash": "max"
-  },
-  "proxy_enabled": false
+    "deepseek/deepseek-v4-flash": "max",
+    "cline-free/deepseek-v4.1-flash": "max",
+    "cline-free/kimi-k3": "max",
+    "cline-free/mimo-v2.6-flash": "max",
+    "stealth/space-bunny-alpha": "max"
+  }
 }

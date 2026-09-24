@@ -209,6 +209,42 @@
     color: var(--text-primary);
   }
 
+  button:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  button.probe {
+    font-size: 11.5px;
+    padding: 4px 10px;
+    min-width: 58px;
+  }
+
+  button.row-x {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    font-size: 16px;
+    line-height: 1;
+    color: var(--danger);
+    flex: 0 0 auto;
+  }
+
+  .probe-result {
+    display: block;
+    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    max-width: 280px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .probe-result.ok { color: var(--success); }
+  .probe-result.bad { color: var(--danger); }
+
   /* Usage Cards - Large & High Impact */
   .section-title {
     font-size: 12px;
@@ -642,7 +678,7 @@
       <div class="panel-head">
         <div>
           <div class="panel-title">Active Models & Per-Model Reasoning Effort</div>
-          <div class="panel-desc">Configure independent reasoning levels per model. Click tier to update instantly.</div>
+          <div class="panel-desc">Add or remove models without editing code. Click a tier to set reasoning effort.</div>
         </div>
         <div style="display:flex; align-items:center; gap:12px;">
           <span style="font-size:12px; color:var(--text-muted);">Global Fallback:</span>
@@ -656,6 +692,11 @@
         </div>
       </div>
 
+      <form id="add-model-form" style="display:flex; gap:8px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--border-subtle);">
+        <input id="add-model-input" type="text" placeholder="provider/model-id" autocomplete="off" spellcheck="false" style="flex:1; background:var(--bg-base); color:var(--text-primary); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:8px 12px; font-family:var(--font-mono); font-size:13px;">
+        <button type="submit" class="primary">Add model</button>
+      </form>
+
       <div class="table-container">
         <table>
           <thead>
@@ -663,6 +704,7 @@
               <th>Model Identifier</th>
               <th>Upstream Route</th>
               <th>Status</th>
+              <th>Test</th>
               <th style="text-align:right;">Default Reasoning Effort</th>
             </tr>
           </thead>
@@ -878,7 +920,7 @@ function render() {
   
   const base = originBase();
   const root = originRoot();
-  const firstModel = (state.models && state.models[0] && state.models[0].id) || "z-ai/glm-5.3-flash";
+  const firstModel = state.default_model || (state.models && state.models[0] && state.models[0].id) || "deepseek/deepseek-v4-flash";
   
   $("client-snippet").textContent = 
 `baseURL: "${base}"
@@ -925,12 +967,17 @@ model:   "${firstModel}"`;
     tr.innerHTML = `
       <td>
         <div class="model-name">
+          <button type="button" class="ghost row-x" data-del="${m.id}" title="Remove ${m.id}">×</button>
           <span>${m.id}</span>
           <span class="badge ${isPaid ? 'badge-danger' : 'badge-success'}">${isPaid ? 'Paid' : 'Free / Active'}</span>
         </div>
       </td>
       <td style="font-family:var(--font-mono); color:var(--text-muted); font-size:12px;">${m.root || m.id}</td>
       <td><span class="badge badge-accent">Reasoning Ready</span></td>
+      <td>
+        <button type="button" class="probe" data-probe="${m.id}">Test</button>
+        <span class="probe-result" data-probe-out="${m.id}"></span>
+      </td>
       <td style="text-align:right;">
         <div class="segmented-control sm">${segButtons}</div>
       </td>
@@ -1031,8 +1078,85 @@ $("global-effort-seg").onclick = (e) => {
 };
 
 $("model-rows").onclick = (e) => {
+  const del = e.target.closest("button[data-del]");
+  if (del) { deleteModel(del.dataset.del); return; }
+  const probe = e.target.closest("button[data-probe]");
+  if (probe) { testModel(probe.dataset.probe, probe); return; }
   const b = e.target.closest("button[data-m][data-v]");
   if (b) saveModelEffort(b.dataset.m, b.dataset.v);
+};
+
+async function testModel(model, btn) {
+  const out = document.querySelector(`[data-probe-out="${CSS.escape(model)}"]`);
+  btn.disabled = true;
+  btn.textContent = "…";
+  if (out) { out.className = "probe-result"; out.textContent = "probing…"; }
+  try {
+    const r = await fetch("/api/probe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ model }),
+    });
+    if (r.status === 401) { location.replace("/login"); return; }
+    const data = await r.json();
+    if (out) {
+      if (data.ok) {
+        out.className = "probe-result ok";
+        out.textContent = `${data.ms}ms · ${data.content || "ok"}`;
+      } else {
+        out.className = "probe-result bad";
+        out.textContent = `${data.status || "fail"} · ${(data.error || "no content").slice(0, 80)}`;
+      }
+    }
+    toast(data.ok ? `${model} responds` : `${model} failed`);
+  } catch (err) {
+    if (out) { out.className = "probe-result bad"; out.textContent = "request failed"; }
+    toast(`${model} probe failed`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Test";
+  }
+}
+
+async function addModel(id) {
+  const r = await fetch("/api/models", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({ model: id }),
+  });
+  if (r.status === 401) { location.replace("/login"); return; }
+  const data = await r.json();
+  if (data.error) { toast(data.error); return; }
+  state = Object.assign(state, data);
+  render();
+  toast("added " + id);
+}
+
+async function deleteModel(id) {
+  if (!confirm("Remove " + id + " from the catalog?")) return;
+  const r = await fetch("/api/models/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({ model: id }),
+  });
+  if (r.status === 401) { location.replace("/login"); return; }
+  const data = await r.json();
+  if (data.error) { toast(data.error); return; }
+  state = Object.assign(state, data);
+  render();
+  toast("removed " + id);
+}
+
+$("add-model-form").onsubmit = (e) => {
+  e.preventDefault();
+  const input = $("add-model-input");
+  const id = (input.value || "").trim();
+  if (!id) return;
+  input.value = "";
+  addModel(id);
 };
 
 $("egress-seg").onclick = (e) => {

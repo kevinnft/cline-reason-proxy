@@ -51,7 +51,7 @@ MODELS_URL = "https://api.cline.bot/api/v1/models"
 PORT = int(os.environ.get("CLINE_PROXY_PORT", "20129"))
 HOST = os.environ.get("CLINE_PROXY_HOST", "127.0.0.1")
 
-# Old picker names still remap; /v1/models lists PUBLIC_MODELS only.
+# Old picker names still remap; /v1/models lists the config catalog only.
 MODEL_ALIASES = {
     "cline-glm-5.3-flash": "z-ai/glm-5.3-flash",
     "cline/z-ai/glm-5.3-flash": "z-ai/glm-5.3-flash",
@@ -59,10 +59,53 @@ MODEL_ALIASES = {
     "cline-ds-v4-flash": "deepseek/deepseek-v4-flash",
     "cline/deepseek/deepseek-v4-flash": "deepseek/deepseek-v4-flash",
     "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
+    # DeepSeek v4.1 Flash Free
+    "deepseek-v4.1-flash": "cline-free/deepseek-v4.1-flash",
+    "deepseek/deepseek-v4.1-flash": "cline-free/deepseek-v4.1-flash",
+    "cline-ds-v4.1-flash": "cline-free/deepseek-v4.1-flash",
+    "cline/deepseek-v4.1-flash": "cline-free/deepseek-v4.1-flash",
+    "cline/deepseek/deepseek-v4.1-flash": "cline-free/deepseek-v4.1-flash",
+    # Muse Spark 1.3 Contributor
+    "muse-spark-1.3-contributor": "cline-free/muse-spark-1.3-contributor",
+    "meta/muse-spark-1.3-contributor": "cline-free/muse-spark-1.3-contributor",
+    "cline/muse-spark-1.3-contributor": "cline-free/muse-spark-1.3-contributor",
+    "cline/meta/muse-spark-1.3-contributor": "cline-free/muse-spark-1.3-contributor",
+    "muse-spark-1.3": "cline-free/muse-spark-1.3-contributor",
+    "meta/muse-spark-1.3": "cline-free/muse-spark-1.3-contributor",
+    # Moonshot Kimi K3 Free
+    "kimi-k3": "cline-free/kimi-k3",
+    "moonshotai/kimi-k3": "cline-free/kimi-k3",
+    "moonshot/kimi-k3": "cline-free/kimi-k3",
+    "cline/kimi-k3": "cline-free/kimi-k3",
+    "cline/moonshotai/kimi-k3": "cline-free/kimi-k3",
+    "cline-free/kimi-k3": "cline-free/kimi-k3",
+    "cline-free/moonshotai/kimi-k3": "cline-free/kimi-k3",
+    # Xiaomi Mimo v2.6 Flash Free
+    "mimo-v2.6-flash": "cline-free/mimo-v2.6-flash",
+    "xiaomi/mimo-v2.6-flash": "cline-free/mimo-v2.6-flash",
+    "cline/mimo-v2.6-flash": "cline-free/mimo-v2.6-flash",
+    "cline/xiaomi/mimo-v2.6-flash": "cline-free/mimo-v2.6-flash",
+    "cline-mimo-v2.6-flash": "cline-free/mimo-v2.6-flash",
+    "cline-free/mimo-v2.6-flash": "cline-free/mimo-v2.6-flash",
+    "cline-free/xiaomi/mimo-v2.6-flash": "cline-free/mimo-v2.6-flash",
+    # Stealth Space Bunny Alpha (free, cost 0)
+    "space-bunny-alpha": "stealth/space-bunny-alpha",
+    "stealth/space-bunny-alpha": "stealth/space-bunny-alpha",
+    "cline/space-bunny-alpha": "stealth/space-bunny-alpha",
+    "cline/stealth/space-bunny-alpha": "stealth/space-bunny-alpha",
+    "cline-free/space-bunny-alpha": "stealth/space-bunny-alpha",
+    "cline-free/stealth/space-bunny-alpha": "stealth/space-bunny-alpha",
 }
 
-DEFAULT_MODEL = "z-ai/glm-5.3-flash"
-PUBLIC_MODELS = [DEFAULT_MODEL, "deepseek/deepseek-v4-flash"]
+FALLBACK_MODEL = "deepseek/deepseek-v4-flash"
+BUILTIN_MODELS = [
+    "deepseek/deepseek-v4-flash",
+    "cline-free/deepseek-v4.1-flash",
+    "cline-free/muse-spark-1.3-contributor",
+    "cline-free/kimi-k3",
+    "cline-free/mimo-v2.6-flash",
+    "stealth/space-bunny-alpha",
+]
 RETRY_STATUSES = {401, 402, 403, 408, 409, 429, 500, 502, 503, 504}
 MAX_FAILOVER = 32
 
@@ -72,6 +115,7 @@ _keys: list[str] = []
 _proxy_key = ""
 _default_effort = "max"
 _model_efforts: dict[str, str] = {}
+_public_models: list[str] = []
 _proxy_enabled = False
 _proxies: list[str] = []
 _proxy_rr = 0
@@ -349,6 +393,8 @@ def load_or_create_config() -> dict:
     cfg.setdefault("host", HOST)
     cfg.setdefault("reasoning_effort", "max")
     cfg.setdefault("proxy_enabled", False)
+    if not isinstance(cfg.get("public_models"), list) or not cfg.get("public_models"):
+        cfg["public_models"] = list(BUILTIN_MODELS)
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
     try:
         os.chmod(CONFIG_PATH, 0o600)
@@ -551,9 +597,15 @@ def cline_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def default_model() -> str:
+    if _public_models:
+        return _public_models[0]
+    return FALLBACK_MODEL
+
+
 def resolve_model(name: str | None) -> str:
     if not name:
-        return DEFAULT_MODEL
+        return default_model()
     return MODEL_ALIASES.get(name, name)
 
 
@@ -659,6 +711,33 @@ def prepare_request_body(body: dict) -> dict:
         effort = _norm_effort(body.get("reasoning_effort"))
     if not effort:
         effort = _model_efforts.get(model) or _default_effort or "max"
+    # Meta muse-spark rejects effort='max' with 400 (Supported: minimal, low, medium, high, xhigh)
+    if "muse-spark" in model and effort == "max":
+        effort = "xhigh"
+    # Meta muse-spark requires output tokens >= 16 and headroom for reasoning
+    if "muse-spark" in model:
+        if isinstance(body.get("max_tokens"), int) and body["max_tokens"] < 256:
+            body["max_tokens"] = 256
+        if isinstance(body.get("max_completion_tokens"), int) and body["max_completion_tokens"] < 256:
+            body["max_completion_tokens"] = 256
+    # GLM 5.3 reasoning needs headroom (max effort generates ~132 reasoning tokens; empty content -> 500)
+    if "glm-5.3" in model:
+        if isinstance(body.get("max_tokens"), int) and body["max_tokens"] < 256:
+            body["max_tokens"] = 256
+        if isinstance(body.get("max_completion_tokens"), int) and body["max_completion_tokens"] < 256:
+            body["max_completion_tokens"] = 256
+    # DeepSeek v4.1 reasoning models need headroom for reasoning_tokens
+    if "deepseek-v4.1" in model:
+        if isinstance(body.get("max_tokens"), int) and body["max_tokens"] < 128:
+            body["max_tokens"] = 128
+        if isinstance(body.get("max_completion_tokens"), int) and body["max_completion_tokens"] < 128:
+            body["max_completion_tokens"] = 128
+    # Xiaomi Mimo v2.6 reasoning models need headroom for reasoning_tokens (empty content -> 500)
+    if "mimo" in model:
+        if isinstance(body.get("max_tokens"), int) and body["max_tokens"] < 128:
+            body["max_tokens"] = 128
+        if isinstance(body.get("max_completion_tokens"), int) and body["max_completion_tokens"] < 128:
+            body["max_completion_tokens"] = 128
     body["reasoning"] = {**(r if isinstance(r, dict) else {}), "effort": effort}
     body["reasoning_effort"] = effort
     return body
@@ -667,7 +746,7 @@ def prepare_request_body(body: dict) -> dict:
 def listed_models() -> list[dict]:
     out = []
     seen = set()
-    for mid in PUBLIC_MODELS:
+    for mid in _public_models:
         real = resolve_model(mid)
         if mid in seen:
             continue
@@ -682,6 +761,64 @@ def listed_models() -> list[dict]:
     return out
 
 
+def probe_model(model_id: str, timeout: int = 45) -> dict:
+    """One non-stream ping through the same upstream path as /v1/chat/completions.
+    Single key, no failover — a dashboard check should not burn the key pool."""
+    model = resolve_model(model_id)
+    if model not in _public_models and model_id not in _public_models:
+        return {"ok": False, "model": model, "status": 404, "error": "model not in catalog"}
+    body = prepare_request_body({
+        "model": model,
+        "messages": [{"role": "user", "content": "Reply with exactly: pong"}],
+        "max_tokens": 64,
+        "stream": False,
+    })
+    data = json.dumps(body).encode("utf-8")
+    key = next_key()
+    if not key:
+        return {"ok": False, "model": model, "status": 503, "error": "no cline keys"}
+    px = next_proxy()
+    via = proxy_tag(px) if px else "direct"
+    t0 = time.time()
+    try:
+        req = Request(UPSTREAM, data=data, headers=cline_headers(key), method="POST")
+        with open_upstream(req, timeout=timeout, proxy_url=px) as resp:
+            raw = resp.read()
+            status = resp.status
+    except HTTPError as e:
+        raw = e.read() or b""
+        ms = int((time.time() - t0) * 1000)
+        err = raw[:240].decode("utf-8", "replace")
+        log(f"probe fail model={model} key={key_tag(key)} via={via} status={e.code} {ms}ms")
+        return {"ok": False, "model": model, "status": e.code, "ms": ms, "via": via, "error": err}
+    except (URLError, TimeoutError, OSError) as e:
+        ms = int((time.time() - t0) * 1000)
+        log(f"probe fail model={model} key={key_tag(key)} via={via} net={e} {ms}ms")
+        return {"ok": False, "model": model, "status": 502, "ms": ms, "via": via, "error": str(e)[:240]}
+    ms = int((time.time() - t0) * 1000)
+    try:
+        obj = json.loads(raw.decode("utf-8", "replace"))
+    except Exception:
+        log(f"probe fail model={model} key={key_tag(key)} via={via} bad-json {ms}ms")
+        return {"ok": False, "model": model, "status": status, "ms": ms, "via": via, "error": "non-json upstream"}
+    obj = normalize_completion(obj)
+    msg = ((obj.get("choices") or [{}])[0].get("message") or {})
+    content = (msg.get("content") or "").strip()
+    reasoning = bool(msg.get("reasoning_content") or msg.get("reasoning"))
+    ok = status == 200 and bool(content)
+    log(f"probe {'ok' if ok else 'empty'} model={model} key={key_tag(key)} via={via} status={status} {ms}ms")
+    return {
+        "ok": ok,
+        "model": obj.get("model") or model,
+        "status": status,
+        "ms": ms,
+        "via": via,
+        "content": content[:160],
+        "reasoning": reasoning,
+        "effort": body.get("reasoning_effort"),
+    }
+
+
 def settings_payload() -> dict:
     models = listed_models()
     sample = [proxy_tag(u) for u in _proxies[:8]]
@@ -694,7 +831,7 @@ def settings_payload() -> dict:
         "reasoning_effort": _default_effort,
         "model_reasoning_effort": _model_efforts,
         "include_reasoning": True,
-        "default_model": DEFAULT_MODEL,
+        "default_model": default_model(),
         "models": models,
         "upstream": UPSTREAM,
         "proxy_enabled": _proxy_enabled,
@@ -702,6 +839,42 @@ def settings_payload() -> dict:
         "proxy_sample": sample,
         "stats": stats_payload(),
     }
+
+
+def persist_catalog() -> None:
+    cfg = load_or_create_config()
+    cfg["public_models"] = list(_public_models)
+    cfg["model_reasoning_effort"] = dict(_model_efforts)
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+
+
+def add_catalog_model(raw: str) -> dict:
+    global _public_models
+    name = (raw or "").strip()
+    if not name or len(name) > 120 or any(c.isspace() for c in name):
+        return {"ok": False, "error": "invalid model id"}
+    model = resolve_model(name)
+    if model in _public_models:
+        return {"ok": False, "error": "already in catalog", "model": model}
+    _public_models.append(model)
+    _model_efforts.setdefault(model, _default_effort or "max")
+    persist_catalog()
+    log(f"catalog add {model}")
+    return settings_payload()
+
+
+def remove_catalog_model(raw: str) -> dict:
+    global _public_models
+    name = (raw or "").strip()
+    model = resolve_model(name)
+    if model not in _public_models and name not in _public_models:
+        return {"ok": False, "error": "not in catalog", "model": model}
+    _public_models = [m for m in _public_models if m not in (model, name)]
+    _model_efforts.pop(model, None)
+    _model_efforts.pop(name, None)
+    persist_catalog()
+    log(f"catalog remove {model}")
+    return settings_payload()
 
 
 def save_config_patch(patch: dict) -> dict:
@@ -957,7 +1130,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "keys": len(_keys),
                     "upstream": UPSTREAM,
-                    "default_model": DEFAULT_MODEL,
+                    "default_model": default_model(),
                     "proxy_enabled": _proxy_enabled,
                     "proxies": len(_proxies),
                 }
@@ -1002,6 +1175,40 @@ class Handler(BaseHTTPRequestHandler):
             if body is None:
                 return
             _, payload, ctype = json_bytes(save_config_patch(body))
+            self._send(200, payload, ctype)
+            return
+        if path == "/api/probe":
+            if not self._ui_ok():
+                self._err(401, "not signed in", "authentication_error")
+                return
+            body = self._read_json_body()
+            if body is None:
+                return
+            mid = str(body.get("model") or "").strip()
+            if not mid:
+                self._err(400, "model required")
+                return
+            _, payload, ctype = json_bytes(probe_model(mid))
+            self._send(200, payload, ctype)
+            return
+        if path == "/api/models":
+            if not self._ui_ok():
+                self._err(401, "not signed in", "authentication_error")
+                return
+            body = self._read_json_body()
+            if body is None:
+                return
+            _, payload, ctype = json_bytes(add_catalog_model(str(body.get("model") or "")))
+            self._send(200, payload, ctype)
+            return
+        if path == "/api/models/delete":
+            if not self._ui_ok():
+                self._err(401, "not signed in", "authentication_error")
+                return
+            body = self._read_json_body()
+            if body is None:
+                return
+            _, payload, ctype = json_bytes(remove_catalog_model(str(body.get("model") or "")))
             self._send(200, payload, ctype)
             return
         if not self._auth_ok():
@@ -1188,7 +1395,7 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True
         created = int(obj.get("created") or time.time())
         mid = obj.get("id") or f"chatcmpl-{created}"
-        model = obj.get("model") or DEFAULT_MODEL
+        model = obj.get("model") or default_model()
         ch0 = (obj.get("choices") or [{}])[0]
         msg = ch0.get("message") or {}
         role = msg.get("role") or "assistant"
@@ -1241,11 +1448,19 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    global _keys, _proxy_key, _default_effort, HOST, PORT, _proxy_enabled, _proxies, _model_efforts
+    global _keys, _proxy_key, _default_effort, HOST, PORT, _proxy_enabled, _proxies, _model_efforts, _public_models
     ROOT.mkdir(parents=True, exist_ok=True)
     cfg = load_or_create_config()
     _proxy_key = cfg["api_key"]
     _default_effort = _norm_effort(cfg.get("reasoning_effort")) or "max"
+    seen: set[str] = set()
+    loaded: list[str] = []
+    for raw in cfg.get("public_models") or BUILTIN_MODELS:
+        mid = resolve_model(str(raw).strip()) if str(raw).strip() else ""
+        if mid and mid not in seen:
+            seen.add(mid)
+            loaded.append(mid)
+    _public_models = loaded or list(BUILTIN_MODELS)
     _model_efforts = {}
     for m, eff in (cfg.get("model_reasoning_effort") or {}).items():
         ne = _norm_effort(eff)
@@ -1268,7 +1483,7 @@ def main() -> None:
     if _proxies:
         log(f"proxy head: {', '.join(proxy_tag(u) for u in _proxies[:8])}")
     log(f"Auth: Authorization: Bearer <api_key in {CONFIG_PATH}>")
-    log(f"Default model: {DEFAULT_MODEL}")
+    log(f"Default model: {default_model()}")
     log(f"reasoning effort default: {_default_effort}")
     log("include_reasoning=true injected; reasoning -> reasoning_content")
     threading.Thread(target=watchdog_loop, name="sd-watchdog", daemon=True).start()

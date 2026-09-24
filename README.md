@@ -8,9 +8,10 @@ Cline VS Code streams `delta.reasoning` + `include_reasoning`. Hermes / OpenAI c
 - copies `reasoning` / `reasoning_details` → `reasoning_content`
 - unwraps `{data, success}` envelopes
 - round-robins Cline `sk_` keys
-- serves a settings UI at `/` (API key, reasoning effort, models)
+- serves a settings UI at `/` (API key, reasoning effort, model catalog)
+- catalog is `public_models` in `config.json`: add or remove models from the dashboard, no restart
 
-Default model: `z-ai/glm-5.3-flash` (free Cline flash). Old picker names still remap.
+Default model is the first entry in `public_models` (currently `deepseek/deepseek-v4-flash`). Old picker names still remap.
 
 ## Windows
 
@@ -25,7 +26,7 @@ OpenAI:
 ```
 base_url: http://127.0.0.1:20129/v1
 Authorization: Bearer <api_key from config.json>
-model: z-ai/glm-5.3-flash
+model: deepseek/deepseek-v4-flash
 ```
 
 Upstream keys: active `provider=cline` rows in `%APPDATA%\9router\db\data.sqlite`.
