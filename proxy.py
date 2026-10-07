@@ -17,11 +17,14 @@ import json
 import os
 import queue
 import secrets
+import socket
 import sqlite3
 import sys
 import threading
 import time
 import traceback
+import http.client
+import urllib.request
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -29,6 +32,34 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import ProxyHandler, Request, build_opener, urlopen
+
+
+class _NoDelayHTTPConnection(http.client.HTTPConnection):
+    def connect(self) -> None:
+        super().connect()
+        try:
+            self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
+
+
+class _NoDelayHTTPSConnection(http.client.HTTPSConnection):
+    def connect(self) -> None:
+        super().connect()
+        try:
+            self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
+
+
+class _NoDelayHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_NoDelayHTTPConnection, req)
+
+
+class _NoDelayHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_NoDelayHTTPSConnection, req)
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "config.json"
@@ -59,12 +90,6 @@ MODEL_ALIASES = {
     "cline-ds-v4-flash": "deepseek/deepseek-v4-flash",
     "cline/deepseek/deepseek-v4-flash": "deepseek/deepseek-v4-flash",
     "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
-    # DeepSeek v4.1 Flash Free
-    "deepseek-v4.1-flash": "cline-free/deepseek-v4.1-flash",
-    "deepseek/deepseek-v4.1-flash": "cline-free/deepseek-v4.1-flash",
-    "cline-ds-v4.1-flash": "cline-free/deepseek-v4.1-flash",
-    "cline/deepseek-v4.1-flash": "cline-free/deepseek-v4.1-flash",
-    "cline/deepseek/deepseek-v4.1-flash": "cline-free/deepseek-v4.1-flash",
     # Muse Spark 1.3 Contributor
     "muse-spark-1.3-contributor": "cline-free/muse-spark-1.3-contributor",
     "meta/muse-spark-1.3-contributor": "cline-free/muse-spark-1.3-contributor",
@@ -95,12 +120,19 @@ MODEL_ALIASES = {
     "cline/stealth/space-bunny-alpha": "stealth/space-bunny-alpha",
     "cline-free/space-bunny-alpha": "stealth/space-bunny-alpha",
     "cline-free/stealth/space-bunny-alpha": "stealth/space-bunny-alpha",
+    # Google Gemini 3.8 Flash Free
+    "gemini-3.8-flash": "cline-free/gemini-3.8-flash",
+    "google/gemini-3.8-flash": "cline-free/gemini-3.8-flash",
+    "cline-gemini-3.8-flash": "cline-free/gemini-3.8-flash",
+    "cline/gemini-3.8-flash": "cline-free/gemini-3.8-flash",
+    "cline/google/gemini-3.8-flash": "cline-free/gemini-3.8-flash",
+    "cline-free/gemini-3.8-flash": "cline-free/gemini-3.8-flash",
+    "cline-free/google/gemini-3.8-flash": "cline-free/gemini-3.8-flash",
 }
 
 FALLBACK_MODEL = "deepseek/deepseek-v4-flash"
 BUILTIN_MODELS = [
     "deepseek/deepseek-v4-flash",
-    "cline-free/deepseek-v4.1-flash",
     "cline-free/muse-spark-1.3-contributor",
     "cline-free/kimi-k3",
     "cline-free/mimo-v2.6-flash",
@@ -111,14 +143,18 @@ MAX_FAILOVER = 32
 
 _lock = threading.Lock()
 _rr = 0
-_keys: list[str] = []
+_own_keys: list[str] = []
+_keys: list[str] = _own_keys
+_nine_keys: list[str] = []
 _proxy_key = ""
 _default_effort = "max"
 _model_efforts: dict[str, str] = {}
 _public_models: list[str] = []
 _proxy_enabled = False
 _proxies: list[str] = []
+_nine_proxies: list[str] = []
 _proxy_rr = 0
+_reasoning_required: set[str] = set()
 WEB_DIR = ROOT / "web"
 PAID_MODELS: set[str] = set()
 PROXIES_FILE = Path(os.environ.get("CLINE_PROXIES_FILE", str(ROOT / "proxies.json"))).expanduser()
@@ -188,14 +224,25 @@ def init_stats_db() -> None:
                  prompt INTEGER NOT NULL DEFAULT 0,
                  completion INTEGER NOT NULL DEFAULT 0,
                  total INTEGER NOT NULL DEFAULT 0,
-                 effort TEXT NOT NULL DEFAULT ''
+                 effort TEXT NOT NULL DEFAULT '',
+                 key_tail TEXT NOT NULL DEFAULT '',
+                 proxy TEXT NOT NULL DEFAULT '',
+                 key_n INTEGER NOT NULL DEFAULT 0,
+                 proxy_n INTEGER NOT NULL DEFAULT 0
                )"""
         )
         con.execute("CREATE INDEX IF NOT EXISTS hits_ts ON hits(ts)")
-        try:
-            con.execute("ALTER TABLE hits ADD COLUMN effort TEXT NOT NULL DEFAULT ''")
-        except sqlite3.OperationalError:
-            pass
+        for col, typedef in (
+            ("effort", "TEXT NOT NULL DEFAULT ''"),
+            ("key_tail", "TEXT NOT NULL DEFAULT ''"),
+            ("proxy", "TEXT NOT NULL DEFAULT ''"),
+            ("key_n", "INTEGER NOT NULL DEFAULT 0"),
+            ("proxy_n", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            try:
+                con.execute(f"ALTER TABLE hits ADD COLUMN {col} {typedef}")
+            except sqlite3.OperationalError:
+                pass
     finally:
         con.close()
 
@@ -261,6 +308,10 @@ def record_hit(
     completion: int = 0,
     total: int = 0,
     effort: str = "",
+    key_tail: str = "",
+    proxy: str = "",
+    key_n: int = 0,
+    proxy_n: int = 0,
 ) -> None:
     if usage_obj is not None:
         prompt, completion, total = extract_usage(usage_obj)
@@ -273,6 +324,10 @@ def record_hit(
         max(0, int(completion)),
         max(0, int(total)),
         (effort or "")[:32],
+        (key_tail or "")[:12],
+        (proxy or "")[:80],
+        max(0, int(key_n)),
+        max(0, int(proxy_n)),
     )
     try:
         _stats_q.put_nowait(item)
@@ -299,7 +354,7 @@ def stats_writer_loop() -> None:
                         break
             if pending:
                 con.executemany(
-                    "INSERT INTO hits(ts,model,stream,ok,prompt,completion,total,effort) VALUES(?,?,?,?,?,?,?,?)",
+                    "INSERT INTO hits(ts,model,stream,ok,prompt,completion,total,effort,key_tail,proxy,key_n,proxy_n) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                     pending,
                 )
                 pending.clear()
@@ -357,8 +412,9 @@ def stats_payload() -> dict[str, Any]:
             first = con.execute("SELECT MIN(ts) FROM hits").fetchone()[0]
             out["since"] = int(first) if first else None
             rows = con.execute(
-                "SELECT ts, model, stream, ok, prompt, completion, total, COALESCE(effort, '') "
-                "FROM hits ORDER BY ts DESC LIMIT 25"
+                "SELECT ts, model, stream, ok, prompt, completion, total, COALESCE(effort, ''), "
+                "COALESCE(key_tail, ''), COALESCE(proxy, ''), COALESCE(key_n, 0), COALESCE(proxy_n, 0) "
+                "FROM hits ORDER BY ts DESC LIMIT 40"
             ).fetchall()
             out["recent"] = [
                 {
@@ -370,6 +426,10 @@ def stats_payload() -> dict[str, Any]:
                     "completion_tokens": int(r[5] or 0),
                     "tokens": int(r[6] or 0),
                     "effort": str(r[7] or ""),
+                    "key": str(r[8] or ""),
+                    "proxy": str(r[9] or ""),
+                    "key_n": int(r[10] or 0),
+                    "proxy_n": int(r[11] or 0),
                 }
                 for r in rows
             ]
@@ -403,7 +463,48 @@ def load_or_create_config() -> dict:
     return cfg
 
 
-def load_cline_keys() -> list[str]:
+def _read_key_file() -> list[str]:
+    """Own pool only. keys.json is a JSON list of sk_ strings, or {\"keys\": [...]}."""
+    if not KEYS_FILE.is_file():
+        return []
+    blob = json.loads(KEYS_FILE.read_text(encoding="utf-8"))
+    raw: list = []
+    if isinstance(blob, list):
+        raw = blob
+    elif isinstance(blob, dict):
+        raw = blob.get("keys") or blob.get("apiKeys") or []
+    out: list[str] = []
+    for item in raw:
+        if isinstance(item, str):
+            k = item.strip()
+        elif isinstance(item, dict):
+            k = str(item.get("apiKey") or item.get("key") or "").strip()
+        else:
+            k = ""
+        if k:
+            out.append(k)
+    return out
+
+
+def _write_key_file(keys: list[str]) -> None:
+    KEYS_FILE.write_text(json.dumps(keys, indent=2) + "\n", encoding="utf-8")
+    try:
+        os.chmod(KEYS_FILE, 0o600)
+    except OSError:
+        pass
+
+
+def _split_key_blob(text: str) -> list[str]:
+    parts = text.replace(";", "\n").replace(",", "\n").splitlines()
+    return [p.strip().strip("\"'") for p in parts if p.strip().strip("\"'")]
+
+
+def _looks_like_cline_key(k: str) -> bool:
+    return k.startswith("sk_") and 8 <= len(k) <= 400 and " " not in k
+
+
+def load_own_keys() -> list[str]:
+    """Local pool: CLINE_API_KEYS env, then keys.json. Never 9router."""
     keys: list[str] = []
     seen: set[str] = set()
 
@@ -414,61 +515,146 @@ def load_cline_keys() -> list[str]:
             keys.append(k)
 
     env_keys = os.environ.get("CLINE_API_KEYS") or os.environ.get("CLINE_API_KEY") or ""
-    for part in env_keys.replace(";", ",").split(","):
+    for part in _split_key_blob(env_keys):
         add(part)
+    for k in _read_key_file():
+        add(k)
+    return keys
 
-    if KEYS_FILE.is_file():
-        try:
-            blob = json.loads(KEYS_FILE.read_text(encoding="utf-8"))
-        except Exception as e:
-            raise SystemExit(f"bad keys file {KEYS_FILE}: {e}") from e
-        if isinstance(blob, list):
-            for item in blob:
-                if isinstance(item, str):
-                    add(item)
-                elif isinstance(item, dict):
-                    add(str(item.get("apiKey") or item.get("key") or ""))
-        elif isinstance(blob, dict):
-            for item in blob.get("keys") or blob.get("apiKeys") or []:
-                add(item if isinstance(item, str) else str((item or {}).get("apiKey") or ""))
 
+def load_nine_keys() -> list[str]:
+    """9router sqlite, kept only so the dashboard can import it. Not in the live pool."""
     db = default_nine_db()
-    if db.is_file():
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-        cur = con.cursor()
-        rows = cur.execute(
+    if not db.is_file():
+        return []
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        rows = con.execute(
             "SELECT data FROM providerConnections WHERE provider='cline' AND isActive=1"
         ).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
         con.close()
-        active: list[str] = []
-        rest: list[str] = []
-        for (blob,) in rows:
-            try:
-                d = json.loads(blob)
-            except Exception:
-                continue
-            k = (d.get("apiKey") or "").strip()
-            if not k:
-                continue
-            if (d.get("testStatus") or "") == "active":
-                active.append(k)
-            else:
-                rest.append(k)
-        # Prefer 9router testStatus=active so RR starts on keys that recently worked.
-        for k in active + rest:
-            add(k)
+    active: list[str] = []
+    rest: list[str] = []
+    seen: set[str] = set()
+    for (blob,) in rows:
+        try:
+            d = json.loads(blob)
+        except Exception:
+            continue
+        k = (d.get("apiKey") or "").strip()
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        if (d.get("testStatus") or "") == "active":
+            active.append(k)
+        else:
+            rest.append(k)
+    return active + rest
 
-    if not keys:
-        raise SystemExit(
-            "no Cline keys. Put sk_ keys in keys.json, set CLINE_API_KEYS, "
-            f"or point NINE_ROUTER_DB at 9router sqlite (tried {db})"
-        )
-    return keys
+
+def load_cline_keys() -> list[str]:
+    return load_own_keys()
+
+
+def pool_view() -> dict:
+    own = list(_own_keys)
+    own_set = set(own)
+    nine = [k for k in _nine_keys if k not in own_set]
+    nxt = (_rr % len(own)) + 1 if own else 0
+    return {
+        "ok": True,
+        "source": "keys.json",
+        "count": len(own),
+        "next": nxt,
+        "keys": [{"n": i, "tag": key_tag(k), "tail": k[-6:]} for i, k in enumerate(own, 1)],
+        "nine_available": len(nine),
+    }
+
+
+def _apply_own_keys(keys: list[str]) -> None:
+    global _own_keys, _keys, _rr
+    with _lock:
+        _own_keys = keys
+        _keys = list(keys)
+        if _keys:
+            _rr = _rr % len(_keys)
+
+
+def add_pool_keys(text: str) -> dict:
+    incoming = _split_key_blob(text or "")
+    if not incoming:
+        return {"ok": False, "error": "no keys in paste"}
+    bad = [k[:12] for k in incoming if not _looks_like_cline_key(k)]
+    if bad:
+        return {"ok": False, "error": f"not a Cline sk_ key: {bad[0]}", "rejected": len(bad)}
+    current = list(_own_keys)
+    seen = set(current)
+    added = 0
+    for k in incoming:
+        if k not in seen:
+            seen.add(k)
+            current.append(k)
+            added += 1
+    _write_key_file(current)
+    _apply_own_keys(current)
+    log(f"pool add +{added} total={len(current)}")
+    out = pool_view()
+    out["added"] = added
+    out["skipped"] = len(incoming) - added
+    return out
+
+
+def remove_pool_key(tail: str) -> dict:
+    tail = (tail or "").strip()
+    if len(tail) < 4:
+        return {"ok": False, "error": "tail too short"}
+    hits = [k for k in _own_keys if k.endswith(tail)]
+    if len(hits) != 1:
+        return {"ok": False, "error": "key not found" if not hits else "tail matches more than one key"}
+    current = [k for k in _own_keys if k != hits[0]]
+    _write_key_file(current)
+    _apply_own_keys(current)
+    log(f"pool remove {key_tag(hits[0])} total={len(current)}")
+    return pool_view()
+
+
+def clear_pool() -> dict:
+    _write_key_file([])
+    _apply_own_keys([])
+    log("pool cleared")
+    return pool_view()
+
+
+def import_nine_pool() -> dict:
+    """One-shot copy of 9router Cline keys into the local pool. Does not keep the link."""
+    incoming = load_nine_keys()
+    if not incoming:
+        return {"ok": False, "error": "no Cline keys in 9router sqlite"}
+    return add_pool_keys("\n".join(incoming))
 
 
 def key_tag(k: str) -> str:
     k = k or ""
     return f"…{k[-6:]}" if len(k) >= 6 else "…"
+
+
+def key_index(k: str) -> int:
+    try:
+        return _keys.index(k) + 1
+    except ValueError:
+        return 0
+
+
+def proxy_index(url: str | None) -> int:
+    if not url:
+        return 0
+    try:
+        return _proxies.index(url) + 1
+    except ValueError:
+        return 0
 
 
 def next_key() -> str | None:
@@ -505,46 +691,140 @@ def _add_proxy_url(url: str, seen: set[str], out: list[str]) -> None:
     out.append(u)
 
 
-def load_egress_proxies() -> list[str]:
-    """HTTP proxies from proxies.json, CLINE_PROXIES, then 9router proxyPools isActive=1."""
+def load_own_proxies() -> list[str]:
+    """Local egress list: CLINE_PROXIES env, then proxies.json. Never 9router."""
     out: list[str] = []
     seen: set[str] = set()
-
     env = os.environ.get("CLINE_PROXIES") or os.environ.get("CLINE_PROXY") or ""
     for part in env.replace(";", ",").split(","):
         _add_proxy_url(part, seen, out)
-
-    if PROXIES_FILE.is_file():
-        try:
-            blob = json.loads(PROXIES_FILE.read_text(encoding="utf-8"))
-        except Exception as e:
-            log(f"bad proxies file {PROXIES_FILE}: {e}")
-            blob = None
-        if isinstance(blob, list):
-            for item in blob:
-                if isinstance(item, str):
-                    _add_proxy_url(item, seen, out)
-                elif isinstance(item, dict):
-                    _add_proxy_url(str(item.get("proxyUrl") or item.get("url") or ""), seen, out)
-        elif isinstance(blob, dict):
-            for item in blob.get("proxies") or blob.get("urls") or []:
-                _add_proxy_url(item if isinstance(item, str) else str((item or {}).get("proxyUrl") or ""), seen, out)
-
-    db = default_nine_db()
-    if db.is_file():
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-        cur = con.cursor()
-        rows = cur.execute(
-            "SELECT data FROM proxyPools WHERE isActive=1"
-        ).fetchall()
-        con.close()
-        for (blob,) in rows:
-            try:
-                d = json.loads(blob)
-            except Exception:
-                continue
-            _add_proxy_url(str(d.get("proxyUrl") or ""), seen, out)
+    for item in _read_proxy_file():
+        _add_proxy_url(item, seen, out)
     return out
+
+
+def _read_proxy_file() -> list[str]:
+    if not PROXIES_FILE.is_file():
+        return []
+    blob = json.loads(PROXIES_FILE.read_text(encoding="utf-8"))
+    raw: list = []
+    if isinstance(blob, list):
+        raw = blob
+    elif isinstance(blob, dict):
+        raw = blob.get("proxies") or blob.get("urls") or []
+    out: list[str] = []
+    for item in raw:
+        if isinstance(item, str):
+            out.append(item.strip())
+        elif isinstance(item, dict):
+            out.append(str(item.get("proxyUrl") or item.get("url") or "").strip())
+    return [u for u in out if u]
+
+
+def _write_proxy_file(urls: list[str]) -> None:
+    PROXIES_FILE.write_text(json.dumps(urls, indent=2) + "\n", encoding="utf-8")
+    try:
+        os.chmod(PROXIES_FILE, 0o600)
+    except OSError:
+        pass
+
+
+def load_nine_proxies() -> list[str]:
+    """9router proxyPools, import-only. Not in the live egress list."""
+    db = default_nine_db()
+    if not db.is_file():
+        return []
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        rows = con.execute("SELECT data FROM proxyPools WHERE isActive=1").fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+    out: list[str] = []
+    seen: set[str] = set()
+    for (blob,) in rows:
+        try:
+            d = json.loads(blob)
+        except Exception:
+            continue
+        _add_proxy_url(str(d.get("proxyUrl") or ""), seen, out)
+    return out
+
+
+def load_egress_proxies() -> list[str]:
+    return load_own_proxies()
+
+
+def proxy_view() -> dict:
+    own = list(_proxies)
+    own_set = set(own)
+    nxt = (_proxy_rr % len(own)) + 1 if own else 0
+    return {
+        "ok": True,
+        "enabled": _proxy_enabled,
+        "count": len(own),
+        "next": nxt,
+        "proxies": [{"n": i, "tag": proxy_tag(u), "url": u} for i, u in enumerate(own, 1)],
+        "nine_available": sum(1 for u in _nine_proxies if u not in own_set),
+    }
+
+
+def _apply_proxies(urls: list[str]) -> None:
+    global _proxies, _proxy_rr
+    with _lock:
+        _proxies = urls
+        if _proxies:
+            _proxy_rr = _proxy_rr % len(_proxies)
+
+
+def add_proxies(text: str) -> dict:
+    incoming = [p.strip() for p in (text or "").replace(";", "\n").replace(",", "\n").splitlines() if p.strip()]
+    if not incoming:
+        return {"ok": False, "error": "no proxies in paste"}
+    current = list(_proxies)
+    seen = set(current)
+    rejected: list[str] = []
+    added = 0
+    for raw in incoming:
+        trial: list[str] = []
+        _add_proxy_url(raw, set(), trial)
+        if not trial:
+            rejected.append(raw[:40])
+            continue
+        url = trial[0]
+        if url not in seen:
+            seen.add(url)
+            current.append(url)
+            added += 1
+    if rejected and not added:
+        return {"ok": False, "error": f"not an http(s) proxy url: {rejected[0]}", "rejected": len(rejected)}
+    _write_proxy_file(current)
+    _apply_proxies(current)
+    log(f"proxy add +{added} total={len(current)}")
+    out = proxy_view()
+    out["added"] = added
+    out["rejected"] = len(rejected)
+    return out
+
+
+def remove_proxy(tag: str) -> dict:
+    tag = (tag or "").strip()
+    hits = [u for u in _proxies if proxy_tag(u) == tag or u == tag]
+    if len(hits) != 1:
+        return {"ok": False, "error": "proxy not found" if not hits else "tag matches more than one proxy"}
+    current = [u for u in _proxies if u != hits[0]]
+    _write_proxy_file(current)
+    _apply_proxies(current)
+    log(f"proxy remove {proxy_tag(hits[0])} total={len(current)}")
+    return proxy_view()
+
+
+def import_nine_proxies() -> dict:
+    incoming = load_nine_proxies()
+    if not incoming:
+        return {"ok": False, "error": "no active proxies in 9router sqlite"}
+    return add_proxies("\n".join(incoming))
 
 
 def proxy_tag(url: str) -> str:
@@ -564,9 +844,39 @@ def next_proxy() -> str | None:
         return u
 
 
+def body_kind(raw: bytes) -> str:
+    text = raw.decode("utf-8", "replace").lower()
+    if "reasoning is mandatory" in text:
+        return "reasoning"
+    if "empty response content" in text:
+        return "empty"
+    return ""
+
+
+def note_reasoning_required(model: str) -> None:
+    if model and model not in _reasoning_required:
+        _reasoning_required.add(model)
+        log(f"reasoning required model={model}")
+
+
+def log_failed_shape(req_body: dict, kind: str) -> None:
+    log(
+        "failed shape "
+        f"kind={kind} model={req_body.get('model')} stream={bool(req_body.get('stream'))} "
+        f"effort={req_body.get('reasoning_effort')} "
+        f"max_tokens={req_body.get('max_tokens')} "
+        f"max_completion_tokens={req_body.get('max_completion_tokens')} "
+        f"msgs={len(req_body.get('messages') or [])}"
+    )
+
+
 def open_upstream(req: Request, timeout: int = 180, proxy_url: str | None = None):
     if proxy_url:
-        opener = build_opener(ProxyHandler({"http": proxy_url, "https": proxy_url}))
+        opener = build_opener(
+            ProxyHandler({"http": proxy_url, "https": proxy_url}),
+            _NoDelayHTTPHandler(),
+            _NoDelayHTTPSHandler(),
+        )
         return opener.open(req, timeout=timeout)
     return urlopen(req, timeout=timeout)
 
@@ -711,33 +1021,19 @@ def prepare_request_body(body: dict) -> dict:
         effort = _norm_effort(body.get("reasoning_effort"))
     if not effort:
         effort = _model_efforts.get(model) or _default_effort or "max"
+    # Learned from an upstream "Reasoning is mandatory" body, plus the known ids.
+    if effort == "none" and (model in _reasoning_required or "muse-spark" in model or "space-bunny" in model):
+        effort = "low"
     # Meta muse-spark rejects effort='max' with 400 (Supported: minimal, low, medium, high, xhigh)
     if "muse-spark" in model and effort == "max":
         effort = "xhigh"
-    # Meta muse-spark requires output tokens >= 16 and headroom for reasoning
-    if "muse-spark" in model:
+    # Any reasoning request (effort != 'none') requires headroom so thinking tokens
+    # do not exhaust max_tokens before producing content (triggers upstream 500 "empty response content").
+    if effort and effort != "none":
         if isinstance(body.get("max_tokens"), int) and body["max_tokens"] < 256:
             body["max_tokens"] = 256
         if isinstance(body.get("max_completion_tokens"), int) and body["max_completion_tokens"] < 256:
             body["max_completion_tokens"] = 256
-    # GLM 5.3 reasoning needs headroom (max effort generates ~132 reasoning tokens; empty content -> 500)
-    if "glm-5.3" in model:
-        if isinstance(body.get("max_tokens"), int) and body["max_tokens"] < 256:
-            body["max_tokens"] = 256
-        if isinstance(body.get("max_completion_tokens"), int) and body["max_completion_tokens"] < 256:
-            body["max_completion_tokens"] = 256
-    # DeepSeek v4.1 reasoning models need headroom for reasoning_tokens
-    if "deepseek-v4.1" in model:
-        if isinstance(body.get("max_tokens"), int) and body["max_tokens"] < 128:
-            body["max_tokens"] = 128
-        if isinstance(body.get("max_completion_tokens"), int) and body["max_completion_tokens"] < 128:
-            body["max_completion_tokens"] = 128
-    # Xiaomi Mimo v2.6 reasoning models need headroom for reasoning_tokens (empty content -> 500)
-    if "mimo" in model:
-        if isinstance(body.get("max_tokens"), int) and body["max_tokens"] < 128:
-            body["max_tokens"] = 128
-        if isinstance(body.get("max_completion_tokens"), int) and body["max_completion_tokens"] < 128:
-            body["max_completion_tokens"] = 128
     body["reasoning"] = {**(r if isinstance(r, dict) else {}), "effort": effort}
     body["reasoning_effort"] = effort
     return body
@@ -761,7 +1057,7 @@ def listed_models() -> list[dict]:
     return out
 
 
-def probe_model(model_id: str, timeout: int = 45) -> dict:
+def probe_model(model_id: str, timeout: int = 15) -> dict:
     """One non-stream ping through the same upstream path as /v1/chat/completions.
     Single key, no failover — a dashboard check should not burn the key pool."""
     model = resolve_model(model_id)
@@ -1010,6 +1306,13 @@ def json_bytes(obj: Any, status: int = 200) -> tuple[int, bytes, str]:
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    def setup(self) -> None:
+        super().setup()
+        try:
+            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
+
     def log_message(self, fmt: str, *args: Any) -> None:
         log(f"{self.address_string()} {fmt % args}")
 
@@ -1060,9 +1363,9 @@ class Handler(BaseHTTPRequestHandler):
             headers.update(extra)
         self._send(302, b"", "text/plain", headers)
 
-    def _read_json_body(self) -> dict | None:
+    def _read_json_body(self, limit: int = 1_000_000) -> dict | None:
         n = int(self.headers.get("Content-Length") or 0)
-        if n > 1_000_000:
+        if n > limit:
             self._err(413, "body too large")
             return None
         raw = self.rfile.read(n) if n else b"{}"
@@ -1095,6 +1398,50 @@ class Handler(BaseHTTPRequestHandler):
         log(f"login ok ip={ip}")
         _, payload, ctype = json_bytes({"ok": True})
         self._send(200, payload, ctype, {"Set-Cookie": session_cookie_header(token)})
+
+    def _pool_mutation(self, action: str) -> None:
+        if not self._ui_ok():
+            self._err(401, "not signed in", "authentication_error")
+            return
+        if action == "clear":
+            result = clear_pool()
+        elif action == "import":
+            result = import_nine_pool()
+        else:
+            body = self._read_json_body(limit=8_000_000)
+            if body is None:
+                return
+            if action == "delete":
+                result = remove_pool_key(str(body.get("tail") or ""))
+            else:
+                text = body.get("keys")
+                if isinstance(text, list):
+                    text = "\n".join(str(x) for x in text)
+                result = add_pool_keys(str(text or ""))
+        status = 200 if result.get("ok") else 400
+        _, payload, ctype = json_bytes(result, status)
+        self._send(status, payload, ctype)
+
+    def _proxy_mutation(self, action: str) -> None:
+        if not self._ui_ok():
+            self._err(401, "not signed in", "authentication_error")
+            return
+        if action == "import":
+            result = import_nine_proxies()
+        else:
+            body = self._read_json_body(limit=2_000_000)
+            if body is None:
+                return
+            if action == "delete":
+                result = remove_proxy(str(body.get("tag") or body.get("url") or ""))
+            else:
+                text = body.get("proxies")
+                if isinstance(text, list):
+                    text = "\n".join(str(x) for x in text)
+                result = add_proxies(str(text or ""))
+        status = 200 if result.get("ok") else 400
+        _, payload, ctype = json_bytes(result, status)
+        self._send(status, payload, ctype)
 
     def _handle_logout(self) -> None:
         revoke_session(self)
@@ -1149,6 +1496,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._err(401, "not signed in", "authentication_error")
                 return
             _, payload, ctype = json_bytes(settings_payload())
+            self._send(200, payload, ctype)
+            return
+        if path == "/api/pool":
+            if not self._ui_ok():
+                self._err(401, "not signed in", "authentication_error")
+                return
+            _, payload, ctype = json_bytes(pool_view())
+            self._send(200, payload, ctype)
+            return
+        if path == "/api/proxies":
+            if not self._ui_ok():
+                self._err(401, "not signed in", "authentication_error")
+                return
+            _, payload, ctype = json_bytes(proxy_view())
             self._send(200, payload, ctype)
             return
         if not self._auth_ok():
@@ -1211,6 +1572,27 @@ class Handler(BaseHTTPRequestHandler):
             _, payload, ctype = json_bytes(remove_catalog_model(str(body.get("model") or "")))
             self._send(200, payload, ctype)
             return
+        if path == "/api/pool":
+            self._pool_mutation("add")
+            return
+        if path == "/api/pool/delete":
+            self._pool_mutation("delete")
+            return
+        if path == "/api/pool/clear":
+            self._pool_mutation("clear")
+            return
+        if path == "/api/pool/import-9router":
+            self._pool_mutation("import")
+            return
+        if path == "/api/proxies":
+            self._proxy_mutation("add")
+            return
+        if path == "/api/proxies/delete":
+            self._proxy_mutation("delete")
+            return
+        if path == "/api/proxies/import-9router":
+            self._proxy_mutation("import")
+            return
         if not self._auth_ok():
             return
         if path not in ("/v1/chat/completions", "/chat/completions"):
@@ -1230,6 +1612,10 @@ class Handler(BaseHTTPRequestHandler):
         stream = bool(req_body.get("stream"))
         model = req_body.get("model")
         eff = req_body.get("reasoning_effort")
+        if model not in _public_models:
+            log(f"reject unlisted model={model}")
+            self._err(404, f"model not in catalog: {model}")
+            return
         log(f"POST chat model={model} stream={stream} effort={eff} msgs={len(req_body.get('messages') or [])}")
         if stream:
             self._proxy_stream(req_body)
@@ -1239,16 +1625,18 @@ class Handler(BaseHTTPRequestHandler):
     def _proxy_json(self, req_body: dict) -> None:
         data = json.dumps(req_body).encode("utf-8")
         eff = str(req_body.get("reasoning_effort") or "")
-        last_err = "upstream failed"
-        last_status = 502
+        last_err = "own key pool is empty — add sk_ keys in the dashboard" if not _keys else "upstream failed"
+        last_status = 503 if not _keys else 502
         last_body = b""
+        served_key = ""
+        served_proxy = ""
         for _attempt in range(MAX_FAILOVER):
             key = next_key()
             if not key:
                 break
             px = next_proxy()
-            via = f" via {proxy_tag(px)}" if px else " direct"
-            log(f"try json key={key_tag(key)}{via}")
+            via = proxy_tag(px) if px else "direct"
+            log(f"try json key={key_tag(key)} via {via}")
             try:
                 req = Request(UPSTREAM, data=data, headers=cline_headers(key), method="POST")
                 with open_upstream(req, timeout=180, proxy_url=px) as resp:
@@ -1258,16 +1646,18 @@ class Handler(BaseHTTPRequestHandler):
                 raw = e.read() or b""
                 status = e.code
                 last_status, last_body, last_err = status, raw, f"HTTP {status}"
+                served_key, served_proxy = key_tag(key), via.strip()
                 if status in RETRY_STATUSES:
-                    log(f"failover json key={key_tag(key)}{via} status={status} body={raw[:180]!r}")
+                    log(f"failover json key={key_tag(key)} via {via} status={status} body={raw[:180]!r}")
                     continue
-                log(f"fail json key={key_tag(key)}{via} status={status}")
-                record_hit(str(req_body.get("model") or ""), stream=False, ok=False, effort=eff)
+                log(f"fail json key={key_tag(key)} via {via} status={status}")
+                record_hit(str(req_body.get("model") or ""), stream=False, ok=False, effort=eff, key_tail=key_tag(key), proxy=via, key_n=key_index(key), proxy_n=proxy_index(px))
                 self._send(status, raw, "application/json")
                 return
             except (URLError, TimeoutError, OSError) as e:
                 last_status, last_err = 502, str(e)
-                log(f"failover json key={key_tag(key)}{via} net={e}")
+                served_key, served_proxy = key_tag(key), via.strip()
+                log(f"failover json key={key_tag(key)} via {via} net={e}")
                 continue
             try:
                 obj = json.loads(raw.decode("utf-8", "replace"))
@@ -1275,12 +1665,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(status, raw, "application/json")
                 return
             obj = normalize_completion(obj)
-            log(f"ok json key={key_tag(key)}{via} status={status}")
-            record_hit(str(req_body.get("model") or ""), stream=False, ok=True, usage_obj=obj, effort=eff)
+            log(f"ok json key={key_tag(key)} via {via} status={status}")
+            record_hit(str(req_body.get("model") or ""), stream=False, ok=True, usage_obj=obj, effort=eff, key_tail=key_tag(key), proxy=via, key_n=key_index(key), proxy_n=proxy_index(px))
             _, payload, ctype = json_bytes(obj)
             self._send(200, payload, ctype)
             return
-        record_hit(str(req_body.get("model") or ""), stream=False, ok=False, effort=eff)
+        record_hit(str(req_body.get("model") or ""), stream=False, ok=False, effort=eff, key_tail=served_key, proxy=served_proxy)
         _, payload, ctype = json_bytes(
             {"error": {"message": last_err, "type": "api_error", "code": last_status, "body": last_body[:300].decode("utf-8", "replace")}}
         )
@@ -1289,31 +1679,35 @@ class Handler(BaseHTTPRequestHandler):
     def _proxy_stream(self, req_body: dict) -> None:
         data = json.dumps(req_body).encode("utf-8")
         eff = str(req_body.get("reasoning_effort") or "")
-        last_err = "upstream failed"
-        last_status = 502
+        last_err = "own key pool is empty — add sk_ keys in the dashboard" if not _keys else "upstream failed"
+        last_status = 503 if not _keys else 502
+        served_key = ""
+        served_proxy = ""
         for _attempt in range(MAX_FAILOVER):
             key = next_key()
             if not key:
                 break
             px = next_proxy()
-            via = f" via {proxy_tag(px)}" if px else " direct"
-            log(f"try stream key={key_tag(key)}{via}")
+            via = proxy_tag(px) if px else "direct"
+            log(f"try stream key={key_tag(key)} via {via}")
             try:
                 req = Request(UPSTREAM, data=data, headers=cline_headers(key), method="POST")
                 resp = open_upstream(req, timeout=180, proxy_url=px)
             except HTTPError as e:
                 raw = e.read() or b""
                 last_status, last_err = e.code, f"HTTP {e.code} {raw[:180]!r}"
+                served_key, served_proxy = key_tag(key), via.strip()
                 if e.code in RETRY_STATUSES:
-                    log(f"failover stream key={key_tag(key)}{via} status={e.code}")
+                    log(f"failover stream key={key_tag(key)} via {via} status={e.code}")
                     continue
-                log(f"fail stream key={key_tag(key)}{via} status={e.code}")
-                record_hit(str(req_body.get("model") or ""), stream=True, ok=False, effort=eff)
+                log(f"fail stream key={key_tag(key)} via {via} status={e.code}")
+                record_hit(str(req_body.get("model") or ""), stream=True, ok=False, effort=eff, key_tail=key_tag(key), proxy=via, key_n=key_index(key), proxy_n=proxy_index(px))
                 self._send(e.code, raw, e.headers.get("Content-Type") or "application/json")
                 return
             except (URLError, TimeoutError, OSError) as e:
                 last_status, last_err = 502, str(e)
-                log(f"failover stream key={key_tag(key)}{via} net={e}")
+                served_key, served_proxy = key_tag(key), via.strip()
+                log(f"failover stream key={key_tag(key)} via {via} net={e}")
                 continue
             ctype = (resp.headers.get("Content-Type") or "").lower()
             if "text/event-stream" not in ctype and "application/json" in ctype:
@@ -1322,10 +1716,10 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     obj = normalize_completion(json.loads(raw.decode("utf-8", "replace")))
                 except Exception:
-                    record_hit(str(req_body.get("model") or ""), stream=True, ok=True, effort=eff)
+                    record_hit(str(req_body.get("model") or ""), stream=True, ok=True, effort=eff, key_tail=key_tag(key), proxy=via, key_n=key_index(key), proxy_n=proxy_index(px))
                     self._send(200, raw, "application/json")
                     return
-                self._sse_from_json(obj, effort=eff)
+                self._sse_from_json(obj, effort=eff, key_tail=key_tag(key), proxy=via, key_n=key_index(key), proxy_n=proxy_index(px))
                 return
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -1378,15 +1772,19 @@ class Handler(BaseHTTPRequestHandler):
                 ok=not aborted,
                 usage_obj=last_usage,
                 effort=eff,
+                key_tail=key_tag(key),
+                proxy=via,
+                key_n=key_index(key),
+                proxy_n=proxy_index(px),
             )
             return
-        record_hit(str(req_body.get("model") or ""), stream=True, ok=False, effort=eff)
+        record_hit(str(req_body.get("model") or ""), stream=True, ok=False, effort=eff, key_tail=served_key, proxy=served_proxy)
         _, payload, ctype = json_bytes(
             {"error": {"message": last_err, "type": "api_error", "code": last_status}}
         )
         self._send(last_status if last_status >= 400 else 502, payload, ctype)
 
-    def _sse_from_json(self, obj: dict, effort: str = "") -> None:
+    def _sse_from_json(self, obj: dict, effort: str = "", key_tail: str = "", proxy: str = "", key_n: int = 0, proxy_n: int = 0) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -1422,7 +1820,7 @@ class Handler(BaseHTTPRequestHandler):
         emit({}, finish)
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
-        record_hit(str(obj.get("model") or ""), stream=True, ok=True, usage_obj=obj, effort=effort)
+        record_hit(str(obj.get("model") or ""), stream=True, ok=True, usage_obj=obj, effort=effort, key_tail=key_tail, proxy=proxy, key_n=key_n, proxy_n=proxy_n)
 
     def _map_sse_line(self, line: bytes) -> bytes | None:
         raw = line.rstrip(b"\r")
@@ -1448,7 +1846,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    global _keys, _proxy_key, _default_effort, HOST, PORT, _proxy_enabled, _proxies, _model_efforts, _public_models
+    global _nine_keys, _nine_proxies, _proxy_key, _default_effort, HOST, PORT, _proxy_enabled, _proxies, _model_efforts, _public_models
     ROOT.mkdir(parents=True, exist_ok=True)
     cfg = load_or_create_config()
     _proxy_key = cfg["api_key"]
@@ -1467,18 +1865,32 @@ def main() -> None:
         if ne and ne in VALID_EFFORTS:
             _model_efforts[resolve_model(m)] = ne
     _proxy_enabled = bool(cfg.get("proxy_enabled"))
-    _keys = load_cline_keys()
-    _proxies = load_egress_proxies()
+    try:
+        own = load_own_keys()
+    except Exception as e:
+        raise SystemExit(f"bad keys file {KEYS_FILE}: {e}") from e
+    _apply_own_keys(own)
+    _nine_keys = load_nine_keys()
+    try:
+        own_px = load_own_proxies()
+    except Exception as e:
+        raise SystemExit(f"bad proxies file {PROXIES_FILE}: {e}") from e
+    _apply_proxies(own_px)
+    _nine_proxies = load_nine_proxies()
     host = cfg.get("host") or HOST
     port = int(cfg.get("port") or PORT)
     HOST, PORT = host, port
     init_stats_db()
     threading.Thread(target=stats_writer_loop, name="stats-writer", daemon=True).start()
     httpd = ThreadingHTTPServer((host, port), Handler)
+    httpd.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     log(f"cline-reason-proxy listening http://{host}:{port}/")
     log(f"settings UI: http://127.0.0.1:{port}/")
-    log(f"Cline keys loaded: {len(_keys)} (RR consume-1, failover={MAX_FAILOVER})")
+    log(f"Cline keys loaded: {len(_keys)} from {KEYS_FILE.name} (RR consume-1, failover={MAX_FAILOVER})")
+    if not _keys:
+        log("own key pool is empty — /v1 chat returns 503 until keys are added in the dashboard")
     log(f"RR head: {', '.join(key_tag(k) for k in _keys[:8])}")
+    log(f"9router import available: {len(_nine_keys)} (not in the live pool)")
     log(f"egress proxies: {len(_proxies)} enabled={_proxy_enabled}")
     if _proxies:
         log(f"proxy head: {', '.join(proxy_tag(u) for u in _proxies[:8])}")

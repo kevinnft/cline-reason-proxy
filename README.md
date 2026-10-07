@@ -7,7 +7,8 @@ Cline VS Code streams `delta.reasoning` + `include_reasoning`. Hermes / OpenAI c
 - injects `include_reasoning: true`
 - copies `reasoning` / `reasoning_details` → `reasoning_content`
 - unwraps `{data, success}` envelopes
-- round-robins Cline `sk_` keys
+- round-robins Cline `sk_` keys from its own pool (`keys.json`), editable live from the dashboard
+- egress proxies from its own list (`proxies.json`), also editable live; 9router is an optional one-shot import, never read per request
 - serves a settings UI at `/` (API key, reasoning effort, model catalog)
 - catalog is `public_models` in `config.json`: add or remove models from the dashboard, no restart
 
@@ -29,7 +30,7 @@ Authorization: Bearer <api_key from config.json>
 model: deepseek/deepseek-v4-flash
 ```
 
-Upstream keys: active `provider=cline` rows in `%APPDATA%\9router\db\data.sqlite`.
+Upstream keys: the proxy's own pool in `keys.json` (dashboard → Own Account Pool). Not the 9router sqlite.
 
 WSL2 cannot use `127.0.0.1` (that is the VM). Use the Windows vEthernet IP:
 
@@ -47,11 +48,13 @@ cd cline-reason-proxy
 chmod +x run.sh
 ```
 
-Cline keys (pick one):
+Cline keys, own pool only (pick one):
 
-1. `cp keys.example.json keys.json` and put `sk_…` values
-2. `export CLINE_API_KEYS='sk_aaa,sk_bbb'`
-3. 9router sqlite at `~/.9router/db/data.sqlite` or `NINE_ROUTER_DB=/path/to/data.sqlite`
+1. Dashboard → Own Account Pool: paste many `sk_…` keys at once. Saved to `keys.json`, live, no restart.
+2. `cp keys.example.json keys.json` and put `sk_…` values
+3. `export CLINE_API_KEYS='sk_aaa,sk_bbb'`
+
+9router sqlite is not in the request path. The dashboard button "Import from 9router" copies those keys into `keys.json` once; it does not keep the link. Same for egress proxies and `proxies.json`.
 
 ```bash
 ./run.sh
@@ -63,7 +66,7 @@ Do **not** prefix Cline API keys with `workos:` — that 401s (`sk_` keys are Be
 
 ## Files that must stay local
 
-`config.json` and `keys.json` are gitignored. Copy the `*.example.json` files.
+`config.json`, `keys.json`, `proxies.json`, and `stats.sqlite` are gitignored. Copy the `*.example.json` files.
 
 ## Auth split
 

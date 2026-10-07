@@ -89,6 +89,108 @@
     gap: 16px;
   }
 
+  .shell {
+    display: grid;
+    grid-template-columns: 232px 1fr;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border-subtle);
+    padding: 22px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .side-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 8px;
+  }
+
+  .side-brand strong {
+    display: block;
+    font-size: 14px;
+    letter-spacing: -0.02em;
+  }
+
+  .side-brand span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .side-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .side-nav button {
+    width: 100%;
+    justify-content: flex-start;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .side-nav button:hover {
+    background: var(--bg-subtle);
+    color: var(--text-primary);
+  }
+
+  .side-nav button.active {
+    background: var(--accent-subtle);
+    color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent-border);
+  }
+
+  .side-foot {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 4px;
+  }
+
+  .workspace {
+    min-width: 0;
+    padding: 28px 32px 64px;
+  }
+
+  .view { display: none; }
+  .view.active { display: block; }
+
+  .page-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .page-head h2 {
+    font-size: 22px;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+  }
+
+  .page-head p {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-top: 4px;
+  }
+
   .brand {
     display: flex;
     align-items: center;
@@ -133,16 +235,17 @@
   }
 
   .status-pill {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 8px;
-    background: var(--bg-surface-elevated);
+    background: var(--bg-base);
     border: 1px solid var(--border-subtle);
-    padding: 6px 14px;
-    border-radius: var(--radius-full);
-    font-size: 12px;
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    font-size: 11px;
     font-family: var(--font-mono);
     color: var(--text-secondary);
+    width: 100%;
   }
 
   .status-dot {
@@ -228,6 +331,56 @@
     line-height: 1;
     color: var(--danger);
     flex: 0 0 auto;
+  }
+
+  .pool-box {
+    width: 100%;
+    min-height: 92px;
+    resize: vertical;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .pool-list {
+    max-height: 420px;
+    overflow: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+  }
+
+  .pool-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+
+  .pool-no {
+    width: 42px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pool-row.current {
+    background: var(--accent-subtle);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .pool-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 10px;
+    flex-wrap: wrap;
   }
 
   .probe-result {
@@ -591,36 +744,49 @@
   @media (max-width: 1024px) {
     .usage-grid { grid-template-columns: 1fr; }
     .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .shell { grid-template-columns: 1fr; }
+    .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--border-subtle); }
+    .side-nav { display: flex; gap: 6px; overflow-x: auto; }
+    .page-head { flex-wrap: wrap; }
+    .page-head .segmented-control { flex-wrap: wrap; }
   }
 </style>
 </head>
 <body>
-
-  <!-- Top Navbar -->
-  <header class="navbar">
-    <div class="navbar-inner">
-      <div class="brand">
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-brand">
         <div class="brand-badge">C</div>
-        <div class="brand-text">
-          <h1>Cline Reason Proxy <span style="font-size:11px; background:var(--accent-subtle); color:var(--accent); padding:2px 6px; border-radius:4px; border:1px solid var(--accent-border);">v1.2</span></h1>
-          <span>High-Performance AI Reasoning Gateway</span>
+        <div>
+          <strong>Cline Reason</strong>
+          <span>Proxy dashboard</span>
         </div>
       </div>
-      <div class="nav-status">
+      <nav class="side-nav" id="menu">
+        <button type="button" data-view="traffic" class="active">Traffic</button>
+        <button type="button" data-view="model">Model</button>
+        <button type="button" data-view="akun">Akun</button>
+        <button type="button" data-view="proxy">Proxy</button>
+      </nav>
+      <div class="side-foot">
         <div class="status-pill" id="live-indicator">
           <span class="status-dot active"></span>
           <span id="nav-info">Connecting…</span>
         </div>
-        <button type="button" class="ghost" id="btn-logout">Sign Out</button>
+        <button type="button" class="ghost" id="btn-logout">Sign out</button>
       </div>
-    </div>
-  </header>
-
-  <main class="container">
+    </aside>
+    <main class="workspace">
     
-    <!-- Section: High-Impact Usage Metrics -->
-    <div class="section-title">Traffic & Usage Analytics</div>
-    <div class="usage-grid">
+    <section class="view active" id="view-traffic">
+      <div class="page-head">
+        <div>
+          <h2>Traffic</h2>
+          <p id="stats-since">Request volume, success rate, and the live feed.</p>
+        </div>
+        <button type="button" id="btn-refresh" class="primary">Refresh</button>
+      </div>
+      <div class="usage-grid">
       
       <!-- 24h Card -->
       <div class="usage-card">
@@ -666,22 +832,99 @@
         </div>
         <div class="usage-footer">
           <span class="token-stat">Tokens: <strong id="u30-tokens">0</strong></span>
-          <span style="font-size:11.5px; color:var(--text-muted);" id="u30-split">In: 0 · Out: 0</span>
+          <span id="u30-split">In: 0 · Out: 0</span>
         </div>
       </div>
 
     </div>
-
-    <!-- Section: Model Routing & Reasoning Control -->
-    <div class="section-title">Model Catalog & Reasoning Controls</div>
     <div class="panel full-width">
       <div class="panel-head">
         <div>
-          <div class="panel-title">Active Models & Per-Model Reasoning Effort</div>
-          <div class="panel-desc">Add or remove models without editing code. Click a tier to set reasoning effort.</div>
+          <div class="panel-title">Recent requests</div>
+          <div class="panel-desc">Latest recorded hits.</div>
+        </div>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Target Model</th>
+              <th>Account</th>
+              <th>Proxy</th>
+              <th>Reasoning</th>
+              <th>Status</th>
+              <th style="text-align:right;">Prompt In</th>
+              <th style="text-align:right;">Tokens Out</th>
+              <th style="text-align:right;">Total Tokens</th>
+            </tr>
+          </thead>
+          <tbody id="recent-rows"></tbody>
+        </table>
+      </div>
+    </div>
+    </section>
+
+    <section class="view" id="view-akun">
+      <div class="page-head">
+        <div>
+          <h2>Akun</h2>
+          <p>Local Cline keys and the client bearer token.</p>
+        </div>
+      </div>
+    <div class="panel full-width" style="margin-bottom: 28px;">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Cline API Keys</div>
+          <div class="panel-desc" id="pool-desc">Local pool only. 9router is not read at request time.</div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button type="button" id="btn-import-nine">Import from 9router</button>
+          <button type="button" id="btn-clear-pool">Clear pool</button>
+        </div>
+      </div>
+      <textarea id="pool-input" class="pool-box" spellcheck="false" placeholder="Paste sk_ keys, one per line. Commas and semicolons also split."></textarea>
+      <div class="pool-actions">
+        <button type="button" class="primary" id="btn-add-keys">Add keys</button>
+        <span id="pool-note" style="font-size:12px; color:var(--text-muted);"></span>
+      </div>
+      <div class="pool-list" id="pool-list" style="margin-top:14px;"></div>
+    </div>
+    <div class="panel full-width">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Client access</div>
+          <div class="panel-desc">Bearer token for OpenAI-compatible clients. This is not a pool key.</div>
+        </div>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:6px;">API key</div>
+        <div class="field-box">
+          <code id="key-display">••••••••••••••••••••••••</code>
+          <div style="display:flex; gap:6px;">
+            <button type="button" id="btn-toggle-key">Show</button>
+            <button type="button" class="primary" id="btn-copy-key">Copy</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:6px;">Client setup</div>
+        <div class="field-box" style="align-items: flex-start; padding: 12px;">
+          <code id="client-snippet" style="white-space: pre-wrap; line-height: 1.6;">Loading config…</code>
+          <button type="button" id="btn-copy-snippet" style="align-self: flex-start;">Copy</button>
+        </div>
+      </div>
+    </div>
+    </section>
+
+    <section class="view" id="view-model">
+      <div class="page-head">
+        <div>
+          <h2>Model</h2>
+          <p>Catalog, upstream route, and reasoning effort.</p>
         </div>
         <div style="display:flex; align-items:center; gap:12px;">
-          <span style="font-size:12px; color:var(--text-muted);">Global Fallback:</span>
+          <span style="font-size:12px; color:var(--text-muted);">Fallback</span>
           <div class="segmented-control sm" id="global-effort-seg">
             <button type="button" data-v="low">Low</button>
             <button type="button" data-v="medium">Med</button>
@@ -689,6 +932,13 @@
             <button type="button" data-v="xhigh">XHigh</button>
             <button type="button" data-v="max">Max</button>
           </div>
+        </div>
+      </div>
+    <div class="panel full-width">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Catalog</div>
+          <div class="panel-desc">Add or remove a model here. A tier sets that model's effort.</div>
         </div>
       </div>
 
@@ -714,56 +964,41 @@
         </table>
       </div>
     </div>
+    </section>
 
-    <!-- Section: Setup & Integration Config -->
-    <div class="grid-2">
-      
-      <!-- API Access & Config -->
-      <div class="panel">
-        <div class="panel-head">
-          <div>
-            <div class="panel-title">Authentication & Integration</div>
-            <div class="panel-desc">Bearer token authentication for OpenAI-compatible clients.</div>
-          </div>
-        </div>
-
-        <div style="margin-bottom: 16px;">
-          <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:6px;">API Key (Bearer Token)</div>
-          <div class="field-box">
-            <code id="key-display">••••••••••••••••••••••••</code>
-            <div style="display:flex; gap:6px;">
-              <button type="button" id="btn-toggle-key">Show</button>
-              <button type="button" class="primary" id="btn-copy-key">Copy</button>
-            </div>
-          </div>
-        </div>
-
+    <section class="view" id="view-proxy">
+      <div class="page-head">
         <div>
-          <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:6px;">Client Quick Setup</div>
-          <div class="field-box" style="align-items: flex-start; padding: 12px;">
-            <code id="client-snippet" style="white-space: pre-wrap; line-height: 1.6;">Loading config…</code>
-            <button type="button" id="btn-copy-snippet" style="align-self: flex-start;">Copy</button>
-          </div>
+          <h2>Proxy</h2>
+          <p>Egress rotation and the public endpoints.</p>
+        </div>
+        <div class="segmented-control sm" id="egress-seg">
+          <button type="button" data-on="0">Direct</button>
+          <button type="button" data-on="1">Proxy pool</button>
         </div>
       </div>
-
-      <!-- Egress Proxy & Endpoints -->
-      <div class="panel">
+      <div class="panel full-width">
         <div class="panel-head">
           <div>
-            <div class="panel-title">Network & Egress Routing</div>
-            <div class="panel-desc">Proxy rotation and system network endpoints.</div>
-          </div>
-          <div class="segmented-control sm" id="egress-seg">
-            <button type="button" data-on="0">Direct</button>
-            <button type="button" data-on="1">Proxy Pool</button>
+            <div class="panel-title">Egress</div>
+            <div class="panel-desc" id="egress-info">Evaluating egress pool status…</div>
           </div>
         </div>
-
-        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 14px;" id="egress-info">
-          Evaluating egress pool status…
+        <textarea id="proxy-input" class="pool-box" spellcheck="false" placeholder="Paste http://user:pass@host:port proxies, one per line."></textarea>
+        <div class="pool-actions">
+          <button type="button" class="primary" id="btn-add-proxies">Add proxies</button>
+          <button type="button" id="btn-import-nine-proxies">Import from 9router</button>
+          <span id="proxy-note" style="font-size:12px; color:var(--text-muted);"></span>
         </div>
-
+        <div class="pool-list" id="proxy-list" style="margin-top:14px;"></div>
+      </div>
+      <div class="panel full-width">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Endpoints</div>
+            <div class="panel-desc">OpenAI-compatible paths on this proxy.</div>
+          </div>
+        </div>
         <div class="endpoint-list">
           <div class="endpoint-item">
             <span class="endpoint-label">Base URL</span>
@@ -787,43 +1022,10 @@
           </div>
         </div>
       </div>
-
-    </div>
-
-    <!-- Section: Live Stream Log & Traffic Monitor -->
-    <div class="panel full-width">
-      <div class="panel-head">
-        <div>
-          <div class="panel-title">Recent Requests & Live Traffic</div>
-          <div class="panel-desc" id="stats-since">Monitoring stream invocations and token usage.</div>
-        </div>
-        <button type="button" id="btn-refresh" class="primary" style="padding: 7px 14px;">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-          Refresh Feed
-        </button>
-      </div>
-
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Timestamp</th>
-              <th>Target Model</th>
-              <th>Reasoning</th>
-              <th>Status</th>
-              <th style="text-align:right;">Prompt In</th>
-              <th style="text-align:right;">Tokens Out</th>
-              <th style="text-align:right;">Total Tokens</th>
-            </tr>
-          </thead>
-          <tbody id="recent-rows">
-            <!-- Dynamic Injection -->
-          </tbody>
-        </table>
-      </div>
-    </div>
+    </section>
 
   </main>
+  </div>
 
   <div class="toast" id="toast-notify">Notification</div>
 
@@ -842,7 +1044,24 @@ let state = {
   proxy_sample: [],
   stats: { "24h": {}, "7d": {}, "30d": {}, recent: [] }
 };
+let pool = { count: 0, keys: [], nine_available: 0 };
+let proxies = { count: 0, proxies: [], nine_available: 0, enabled: false };
 let keyVisible = false;
+
+function showView(name) {
+  document.querySelectorAll(".view").forEach((el) => {
+    el.classList.toggle("active", el.id === "view-" + name);
+  });
+  document.querySelectorAll("#menu button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.view === name);
+  });
+  try { localStorage.setItem("crp-view", name); } catch (e) {}
+}
+
+$("menu").onclick = (e) => {
+  const b = e.target.closest("button[data-view]");
+  if (b) showView(b.dataset.view);
+};
 
 function toast(msg) {
   const el = $("toast-notify");
@@ -906,7 +1125,7 @@ function updateStatCard(prefix, data) {
 
 function render() {
   // Navbar state
-  $("nav-info").textContent = `${state.keys} Cline Keys Active · Port ${state.port || 20129}`;
+  $("nav-info").textContent = `${state.keys} keys · :${state.port || 20129}`;
   
   // Usage Cards
   const st = state.stats || {};
@@ -938,9 +1157,8 @@ model:   "${firstModel}"`;
   document.querySelectorAll("#egress-seg button").forEach((b) => {
     b.classList.toggle("active", (b.dataset.on === "1") === pxOn);
   });
-  $("egress-info").innerHTML = pxOn 
-    ? `<span style="color:var(--success)">● Proxy Rotation Active</span> — ${state.proxies || 0} egress nodes in round-robin pool.`
-    : `<span style="color:var(--text-muted)">○ Direct Routing Active</span> — ${state.proxies || 0} nodes loaded in pool.`;
+  renderPool();
+  renderProxies();
 
   // Global Effort Segmented
   document.querySelectorAll("#global-effort-seg button").forEach((b) => {
@@ -991,7 +1209,7 @@ model:   "${firstModel}"`;
   const rec = st.recent || [];
 
   if (!rec.length) {
-    recentRows.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">No request traffic logged yet.</td></tr>`;
+    recentRows.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--text-muted);">No request traffic logged yet.</td></tr>`;
   } else {
     rec.forEach((r) => {
       const tr = document.createElement("tr");
@@ -1005,6 +1223,8 @@ model:   "${firstModel}"`;
       tr.innerHTML = `
         <td style="font-family:var(--font-mono); color:var(--text-muted); font-size:11.5px;">${fmtTime(r.ts)}</td>
         <td style="font-family:var(--font-mono); font-weight:500;">${r.model || "—"}</td>
+        <td style="font-family:var(--font-mono); font-size:12px;">${r.key_n ? "#" + r.key_n + " " : ""}${r.key || "—"}</td>
+        <td style="font-family:var(--font-mono); font-size:12px;">${r.proxy_n ? "#" + r.proxy_n + " " : ""}${r.proxy || "—"}</td>
         <td>${effBadge}</td>
         <td>${okBadge}${sseBadge}</td>
         <td style="text-align:right; font-family:var(--font-mono);">${fmtNum(r.prompt_tokens)}</td>
@@ -1020,11 +1240,101 @@ model:   "${firstModel}"`;
   }
 }
 
+function renderPool() {
+  const n = pool.count || 0;
+  const nine = pool.nine_available || 0;
+  const nxt = pool.next || 0;
+  $("pool-desc").textContent = n
+    ? `${n} accounts. Next up: #${nxt}.`
+    : "Pool is empty — chat returns 503 until you add keys.";
+  $("pool-note").textContent = nine ? `${nine} keys in 9router not yet imported.` : "";
+  const list = $("pool-list");
+  const rows = pool.keys || [];
+  if (!rows.length) {
+    list.innerHTML = `<div class="pool-row" style="color:var(--text-muted);">No local keys yet.</div>`;
+    return;
+  }
+  list.innerHTML = rows.map((k) =>
+    `<div class="pool-row${k.n === nxt ? " current" : ""}"><span class="pool-no">#${k.n}</span>` +
+    `<span style="flex:1;">${k.tag}</span>` +
+    `${k.n === nxt ? `<span class="badge badge-accent">next</span>` : ""}` +
+    `<button type="button" class="ghost row-x" data-key-tail="${k.tail}" title="Remove">×</button></div>`
+  ).join("");
+}
+
+function renderProxies() {
+  const rows = proxies.proxies || [];
+  const nine = proxies.nine_available || 0;
+  const nxt = proxies.next || 0;
+  $("egress-info").textContent = rows.length
+    ? `${rows.length} proxies. Next up: #${nxt}.`
+    : "No proxies loaded.";
+  $("proxy-note").textContent = nine ? `${nine} proxies in 9router not yet imported.` : "";
+  const list = $("proxy-list");
+  if (!rows.length) {
+    list.innerHTML = `<div class="pool-row" style="color:var(--text-muted);">No local proxies. Direct only.</div>`;
+    return;
+  }
+  list.innerHTML = rows.map((p) =>
+    `<div class="pool-row${p.n === nxt ? " current" : ""}"><span class="pool-no">#${p.n}</span>` +
+    `<span style="flex:1;">${p.tag}</span>` +
+    `${p.n === nxt ? `<span class="badge badge-accent">next</span>` : ""}` +
+    `<button type="button" class="ghost row-x" data-proxy="${p.tag}" title="Remove">×</button></div>`
+  ).join("");
+}
+
+async function loadPool() {
+  const r = await fetch("/api/pool", { credentials: "same-origin", cache: "no-store" });
+  if (r.status === 401) { location.replace("/login"); return; }
+  pool = await r.json();
+  renderPool();
+}
+
+async function loadProxies() {
+  const r = await fetch("/api/proxies", { credentials: "same-origin", cache: "no-store" });
+  if (r.status === 401) { location.replace("/login"); return; }
+  proxies = await r.json();
+  renderProxies();
+}
+
+async function postPool(url, body) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify(body || {}),
+  });
+  if (r.status === 401) { location.replace("/login"); return null; }
+  const data = await r.json();
+  if (!data.ok) { toast(data.error || "failed"); return null; }
+  pool = data;
+  state.keys = data.count;
+  render();
+  return data;
+}
+
+async function postProxies(url, body) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify(body || {}),
+  });
+  if (r.status === 401) { location.replace("/login"); return null; }
+  const data = await r.json();
+  if (!data.ok) { toast(data.error || "failed"); return null; }
+  proxies = data;
+  state.proxies = data.count;
+  render();
+  return data;
+}
+
 async function load() {
   const r = await fetch("/api/settings", { credentials: "same-origin", cache: "no-store" });
   if (r.status === 401) { location.replace("/login"); return; }
   state = Object.assign(state, await r.json());
   render();
+  await Promise.all([loadPool(), loadProxies()]);
 }
 
 async function saveGlobalEffort(v) {
@@ -1164,6 +1474,57 @@ $("egress-seg").onclick = (e) => {
   if (b) saveProxy(b.dataset.on === "1");
 };
 
+$("btn-add-keys").onclick = async () => {
+  const text = ($("pool-input").value || "").trim();
+  if (!text) { toast("paste keys first"); return; }
+  const data = await postPool("/api/pool", { keys: text });
+  if (!data) return;
+  $("pool-input").value = "";
+  toast(`added ${data.added}, skipped ${data.skipped}`);
+};
+
+$("btn-clear-pool").onclick = async () => {
+  if (!pool.count) { toast("pool already empty"); return; }
+  if (!confirm("Remove all " + pool.count + " local keys?")) return;
+  const data = await postPool("/api/pool/clear", {});
+  if (data) toast("pool cleared");
+};
+
+$("btn-import-nine").onclick = async () => {
+  if (!confirm("Copy Cline keys from 9router into this local pool? 9router itself is not modified.")) return;
+  const data = await postPool("/api/pool/import-9router", {});
+  if (data) toast(`imported, added ${data.added}`);
+};
+
+$("pool-list").onclick = async (e) => {
+  const b = e.target.closest("button[data-key-tail]");
+  if (!b) return;
+  const data = await postPool("/api/pool/delete", { tail: b.dataset.keyTail });
+  if (data) toast("key removed");
+};
+
+$("btn-add-proxies").onclick = async () => {
+  const text = ($("proxy-input").value || "").trim();
+  if (!text) { toast("paste proxies first"); return; }
+  const data = await postProxies("/api/proxies", { proxies: text });
+  if (!data) return;
+  $("proxy-input").value = "";
+  toast(`added ${data.added}` + (data.rejected ? `, rejected ${data.rejected}` : ""));
+};
+
+$("btn-import-nine-proxies").onclick = async () => {
+  if (!confirm("Copy active proxies from 9router into this local list?")) return;
+  const data = await postProxies("/api/proxies/import-9router", {});
+  if (data) toast(`imported, added ${data.added}`);
+};
+
+$("proxy-list").onclick = async (e) => {
+  const b = e.target.closest("button[data-proxy]");
+  if (!b) return;
+  const data = await postProxies("/api/proxies/delete", { tag: b.dataset.proxy });
+  if (data) toast("proxy removed");
+};
+
 $("btn-logout").onclick = () => { location.href = "/logout"; };
 
 $("btn-refresh").onclick = async () => {
@@ -1179,7 +1540,12 @@ $("btn-refresh").onclick = async () => {
   }
 };
 
-load().catch(() => {
+load().then(() => {
+  let saved = "traffic";
+  try { saved = localStorage.getItem("crp-view") || "traffic"; } catch (e) {}
+  if (!document.getElementById("view-" + saved)) saved = "traffic";
+  showView(saved);
+}).catch(() => {
   $("live-indicator").innerHTML = '<span class="status-dot" style="background:var(--danger)"></span> Disconnected';
 });
 </script>
